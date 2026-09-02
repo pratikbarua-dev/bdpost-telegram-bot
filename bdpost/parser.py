@@ -38,7 +38,7 @@ def parse_tracking_response(html: str) -> list[dict]:
         table = soup.find("table")
 
         if not table:
-            logger.warning("No table found in response")
+            logger.debug("No table found in response")
             return events
 
         rows = table.find_all("tr")
@@ -55,6 +55,17 @@ def parse_tracking_response(html: str) -> list[dict]:
                     "destination_country": cells[2].get_text(strip=True),
                     "location": cells[3].get_text(strip=True),
                     "status": cells[4].get_text(strip=True),
+                }
+                event["event_hash"] = generate_event_hash(event)
+                events.append(event)
+            elif len(cells) == 4:
+                # Some domestic tracking tables have 4 columns: Date, Location, Status, Remarks/Origin
+                event = {
+                    "event_date": cells[0].get_text(strip=True),
+                    "origin_country": "Bangladesh",
+                    "destination_country": "Bangladesh",
+                    "location": cells[1].get_text(strip=True),
+                    "status": cells[2].get_text(strip=True),
                 }
                 event["event_hash"] = generate_event_hash(event)
                 events.append(event)

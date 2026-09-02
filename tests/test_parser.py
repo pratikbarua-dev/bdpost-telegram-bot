@@ -129,5 +129,30 @@ class TestTrackingValidator(unittest.TestCase):
         self.assertEqual(latest["status"], "Delivered")
 
 
+    def test_domestic_tracking_4_column_table(self):
+        html = """
+        <table>
+            <tr><th>Date</th><th>Location</th><th>Status</th><th>Remarks</th></tr>
+            <tr>
+                <td>18-08-2026 14:00:00</td>
+                <td>Dhaka GPO</td>
+                <td>Item Received</td>
+                <td>Internal</td>
+            </tr>
+        </table>
+        """
+        events = parse_tracking_response(html)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["location"], "Dhaka GPO")
+        self.assertEqual(events[0]["status"], "Item Received")
+        self.assertEqual(events[0]["origin_country"], "Bangladesh")
+        self.assertEqual(events[0]["destination_country"], "Bangladesh")
+
+    def test_bengali_item_not_found_message(self):
+        html = "আইটেমটি পাওয়া যায়নি"
+        events = parse_tracking_response(html)
+        self.assertEqual(events, [])
+
+
 if __name__ == "__main__":
     unittest.main()
