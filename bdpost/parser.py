@@ -55,6 +55,7 @@ def parse_tracking_response(html: str) -> list[dict]:
                     "destination_country": cells[2].get_text(strip=True),
                     "location": cells[3].get_text(strip=True),
                     "status": cells[4].get_text(strip=True),
+                    "source": "bdpost"
                 }
                 event["event_hash"] = generate_event_hash(event)
                 events.append(event)
@@ -66,6 +67,7 @@ def parse_tracking_response(html: str) -> list[dict]:
                     "destination_country": "Bangladesh",
                     "location": cells[1].get_text(strip=True),
                     "status": cells[2].get_text(strip=True),
+                    "source": "bdpost"
                 }
                 event["event_hash"] = generate_event_hash(event)
                 events.append(event)
@@ -105,3 +107,48 @@ def is_arrived_at_post_office(status: str) -> bool:
 def is_dispatched(status: str) -> bool:
     normalized = status.lower().strip()
     return "dispatched" in normalized
+
+
+def is_bdpost_handover_event(event: dict) -> bool:
+    """
+    Checks if a Bangladesh Post event confirms that the parcel has entered
+    the local postal / domestic delivery system.
+    Examples of strong handover events:
+    - 'Arrived at post office'
+    - 'Arrived at inward office'
+    - 'Received at destination country'
+    - 'Arrival at destination country'
+    - 'Received by local carrier'
+    - 'Dispatched from post office'
+    - 'Out for delivery'
+    - 'Delivered'
+    - 'Incomming' at airport/sorting office with destination Bangladesh
+    """
+    if not event:
+        return False
+
+    status = (event.get("status") or "").lower().strip()
+    location = (event.get("location") or "").lower().strip()
+
+    strong_statuses = [
+        "arrived at post office",
+        "arrived at inward office",
+        "received at destination country",
+        "arrival at destination country",
+        "received by local carrier",
+        "dispatched from post office",
+        "out for delivery",
+        "delivered",
+        "item received",
+    ]
+
+    for s in strong_statuses:
+        if s in status:
+            return True
+
+    # If status is incomming/received and at Dhaka Airport / Sorting office or destination is Bangladesh
+    if "incomming" in status or "incoming" in status:
+        if "dhaka" in location or "sorting office" in location or "post office" in location:
+            return True
+
+    return False

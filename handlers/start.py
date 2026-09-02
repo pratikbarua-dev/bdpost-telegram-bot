@@ -16,8 +16,8 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         db.get_or_create_user(update.effective_user.id)
 
     welcome_text = (
-        "👋 Welcome to *Bangladesh Post Parcel Tracker*!\n\n"
-        "Use the buttons below or send commands to track your parcels and get automatic status updates.\n\n"
+        "👋 Welcome to *Bangladesh Post & AliExpress Parcel Tracker*!\n\n"
+        "Track local Bangladesh Post parcels as well as AliExpress (Cainiao) shipments with automated handover upon arrival in Bangladesh.\n\n"
         "🔘 *How to use:*\n"
         "• Tap *📦 Track Parcel* to subscribe for background notifications\n"
         "• Tap *🔍 Quick Status* to check tracking without subscribing\n"

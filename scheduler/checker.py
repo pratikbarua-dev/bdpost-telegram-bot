@@ -5,9 +5,11 @@ from telegram.ext import ContextTypes
 from telegram.error import TelegramError, Forbidden
 
 from database.db import Database
-from bdpost.client import track, BangladeshPostUnavailableError
-from bdpost.parser import parse_tracking_response
-from bdpost.formatter import format_event_notification
+from bdpost.client import track as track_bdpost, BangladeshPostUnavailableError
+from bdpost.parser import parse_tracking_response as parse_bdpost, is_delivered, is_bdpost_handover_event
+from bdpost.formatter import format_event_notification, format_handover_notification
+from cainiao.client import track as track_cainiao, CainiaoUnavailableError, CainiaoError
+from cainiao.parser import parse_tracking_response as parse_cainiao
 
 logger = logging.getLogger(__name__)
 
@@ -15,68 +17,112 @@ logger = logging.getLogger(__name__)
 async def check_all_trackings(context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Periodic job executed by JobQueue.
-    Fetches updates for all unique active tracking numbers and notifies subscribers.
+    Fetches updates for all unique active tracking numbers and handles
+    Cainiao -> Bangladesh Post dual tracking with automated handover.
     """
     db: Database = context.bot_data["db"]
-    active_tracking_numbers = db.get_all_active_tracking_numbers()
+    active_trackings = db.get_active_trackings_with_providers()
 
-    if not active_tracking_numbers:
+    if not active_trackings:
         logger.debug("No active trackings to check.")
         return
 
-    logger.info("Starting periodic check for %d active parcels", len(active_tracking_numbers))
+    logger.info("Starting periodic check for %d active parcels", len(active_trackings))
 
-    for tracking_number in active_tracking_numbers:
-        try:
-            logger.info("Checking tracking number: %s", tracking_number)
-            html = await track(tracking_number)
-            events = parse_tracking_response(html)
+    for item in active_trackings:
+        tracking_number = item["tracking_number"]
+        cainiao_enabled = bool(item.get("cainiao_enabled", 0))
+        bdpost_enabled = bool(item.get("bdpost_enabled", 1))
+        handover_detected = bool(item.get("handover_detected", 0))
 
-            if not events:
-                logger.debug("No events found for %s", tracking_number)
-                db.update_last_checked(tracking_number)
-                await asyncio.sleep(1.0)
-                continue
-
-            # In typical tracking tables, events are in chronological order (oldest to newest)
-            new_events = db.save_events(tracking_number, events)
-            db.update_last_checked(tracking_number)
-
-            if new_events:
-                logger.info("Detected %d new event(s) for %s", len(new_events), tracking_number)
-                subscribers = db.get_subscribers_for_tracking(tracking_number)
-                
-                # Send events in chronological order
-                events_to_notify = new_events
-                has_delivered_event = False
-
-                for event in events_to_notify:
-                    if is_delivered(event.get("status", "")):
-                        has_delivered_event = True
-                    message_text = format_event_notification(tracking_number, event)
-                    for user_id in subscribers:
-                        try:
-                            await context.bot.send_message(
-                                chat_id=user_id,
-                                text=message_text
-                            )
-                        except Forbidden:
-                            logger.warning("Bot was blocked by user %s. Stopping tracking.", user_id)
-                            db.stop_tracking(user_id, tracking_number)
-                        except TelegramError as te:
-                            logger.error("Failed to send Telegram notification to %s: %s", user_id, te)
-
-                # Automatically deactivate completed tracking subscriptions
-                if has_delivered_event:
-                    logger.info("Parcel %s has been delivered. Deactivating tracking.", tracking_number)
-                    db.deactivate_tracking_number(tracking_number)
-
-            # Delay to avoid overwhelming the Bangladesh Post server
-            await asyncio.sleep(1.5)
-
-        except BangladeshPostUnavailableError as e:
-            logger.warning("Bangladesh Post unavailable while checking %s: %s", tracking_number, e)
-        except Exception as e:
-            logger.error("Unexpected error checking %s: %s", tracking_number, e, exc_info=True)
-            # Continue checking remaining parcels
+        subscribers = db.get_subscribers_for_tracking(tracking_number)
+        if not subscribers:
             continue
+
+        # -------------------------------------------------------------
+        # 1. Check Cainiao (if enabled)
+        # -------------------------------------------------------------
+        if cainiao_enabled:
+            try:
+                logger.info("Checking Cainiao: %s", tracking_number)
+                cainiao_data = await track_cainiao(tracking_number)
+                cainiao_events = parse_cainiao(cainiao_data)
+
+                if cainiao_events:
+                    new_cainiao_events = db.save_events(tracking_number, cainiao_events)
+                    if new_cainiao_events:
+                        logger.info("Cainiao new event(s) for %s: %d", tracking_number, len(new_cainiao_events))
+                        for event in new_cainiao_events:
+                            msg_text = format_event_notification(tracking_number, event)
+                            await _notify_users(context, db, subscribers, tracking_number, msg_text)
+            except (CainiaoUnavailableError, CainiaoError) as ce:
+                logger.warning("Cainiao check failed for %s: %s", tracking_number, ce)
+            except Exception as e:
+                logger.error("Unexpected error checking Cainiao for %s: %s", tracking_number, e, exc_info=True)
+
+        # -------------------------------------------------------------
+        # 2. Check Bangladesh Post (if enabled)
+        # -------------------------------------------------------------
+        if bdpost_enabled:
+            try:
+                logger.info("Checking Bangladesh Post: %s", tracking_number)
+                html = await track_bdpost(tracking_number)
+                bdpost_events = parse_bdpost(html)
+
+                if bdpost_events:
+                    # Check for Handover if not yet detected
+                    if not handover_detected and cainiao_enabled:
+                        for event in bdpost_events:
+                            if is_bdpost_handover_event(event):
+                                logger.info("Handover detected for %s at event: %s", tracking_number, event.get("status"))
+                                db.set_handover_detected(tracking_number, event["event_hash"])
+                                handover_detected = True
+                                cainiao_enabled = False
+
+                                # Send handover notification
+                                handover_msg = format_handover_notification(tracking_number, event)
+                                await _notify_users(context, db, subscribers, tracking_number, handover_msg)
+                                break
+
+                    new_bdpost_events = db.save_events(tracking_number, bdpost_events)
+                    if new_bdpost_events:
+                        logger.info("Bangladesh Post new event(s) for %s: %d", tracking_number, len(new_bdpost_events))
+                        has_delivered = False
+                        for event in new_bdpost_events:
+                            if is_delivered(event.get("status", "")):
+                                has_delivered = True
+                            msg_text = format_event_notification(tracking_number, event)
+                            await _notify_users(context, db, subscribers, tracking_number, msg_text)
+
+                        if has_delivered:
+                            logger.info("Parcel %s has been delivered. Deactivating tracking.", tracking_number)
+                            db.deactivate_tracking_number(tracking_number)
+
+            except BangladeshPostUnavailableError as be:
+                logger.warning("Bangladesh Post unavailable for %s: %s", tracking_number, be)
+            except Exception as e:
+                logger.error("Unexpected error checking Bangladesh Post for %s: %s", tracking_number, e, exc_info=True)
+
+        db.update_last_checked(tracking_number)
+        await asyncio.sleep(1.5)
+
+
+async def _notify_users(
+    context: ContextTypes.DEFAULT_TYPE,
+    db: Database,
+    subscribers: List[int],
+    tracking_number: str,
+    text: str
+) -> None:
+    for user_id in subscribers:
+        try:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=text,
+                parse_mode="Markdown"
+            )
+        except Forbidden:
+            logger.warning("Bot was blocked by user %s. Stopping tracking for %s.", user_id, tracking_number)
+            db.stop_tracking(user_id, tracking_number)
+        except TelegramError as te:
+            logger.error("Failed to send Telegram notification to %s: %s", user_id, te)

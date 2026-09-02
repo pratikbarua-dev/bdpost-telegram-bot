@@ -3,10 +3,10 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from database.db import Database
-from bdpost.client import track, BangladeshPostUnavailableError
-from bdpost.parser import parse_tracking_response, get_latest_event
+from bdpost.parser import get_latest_event, is_bdpost_handover_event
 from bdpost.formatter import format_status_message
 from handlers.keyboards import get_main_keyboard, get_parcel_inline_keyboard, get_my_parcels_inline_keyboard
+from handlers.tracking import fetch_tracking_sources
 
 logger = logging.getLogger(__name__)
 
@@ -24,16 +24,27 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     if data.startswith("refresh:"):
         tracking_number = data.split(":", 1)[1]
         try:
-            html = await track(tracking_number)
-            events = parse_tracking_response(html)
-            if events:
-                db.save_events(tracking_number, events)
+            cainiao_events, bdpost_events = await fetch_tracking_sources(tracking_number)
+            all_events = cainiao_events + bdpost_events
+            if all_events:
+                db.save_events(tracking_number, all_events)
                 db.update_last_checked(tracking_number)
-                latest = get_latest_event(events)
-                msg = f"🔄 *Updated Status:*\n\n{format_status_message(tracking_number, latest)}"
+
+                latest_bdpost = get_latest_event(bdpost_events)
+                latest_cainiao = get_latest_event(cainiao_events)
+
+                if latest_bdpost and any(is_bdpost_handover_event(e) for e in bdpost_events):
+                    display_event = latest_bdpost
+                elif latest_bdpost and not latest_cainiao:
+                    display_event = latest_bdpost
+                else:
+                    display_event = latest_cainiao or latest_bdpost
+
+                msg = f"🔄 *Updated Status:*\n\n{format_status_message(tracking_number, display_event)}"
                 await query.edit_message_text(
                     msg,
-                    reply_markup=get_parcel_inline_keyboard(tracking_number)
+                    reply_markup=get_parcel_inline_keyboard(tracking_number),
+                    parse_mode="Markdown"
                 )
             else:
                 await query.message.reply_text(f"🔎 No information found for `{tracking_number}`.")
@@ -94,13 +105,17 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         for idx, item in enumerate(trackings, 1):
             num = item["tracking_number"]
             try:
-                html = await track(num)
-                events = parse_tracking_response(html)
-                if events:
-                    db.save_events(num, events)
+                cainiao_events, bdpost_events = await fetch_tracking_sources(num)
+                all_events = cainiao_events + bdpost_events
+                if all_events:
+                    db.save_events(num, all_events)
                     db.update_last_checked(num)
-                    latest = get_latest_event(events)
-                    lines.append(f"{idx}. *{num}*\n   📍 {latest.get('location', 'N/A')}\n   📌 {latest.get('status', 'N/A')}\n")
+
+                    latest_bdpost = get_latest_event(bdpost_events)
+                    latest_cainiao = get_latest_event(cainiao_events)
+                    display = latest_bdpost or latest_cainiao
+                    src = "🇧🇩 BD Post" if display.get("source") == "bdpost" else "🚚 Cainiao"
+                    lines.append(f"{idx}. *{num}* ({src})\n   📌 {display.get('status', 'N/A')}\n")
                 else:
                     lines.append(f"{idx}. *{num}*\n   (No records found)\n")
             except Exception:
@@ -116,10 +131,10 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
 
     elif data == "go_home":
         welcome_text = (
-            "👋 Welcome to *Bangladesh Post Parcel Tracker*!\n\n"
+            "👋 Welcome to *Bangladesh Post & AliExpress Parcel Tracker*!\n\n"
             "Use the buttons below or send commands to track your parcels and get automatic status updates.\n\n"
             "🔘 *Quick Menu:*\n"
-            "• *📦 Track Parcel* — Subscribe for updates\n"
+            "• *📦 Track Parcel* — Subscribe for updates (AliExpress & BD Post)\n"
             "• *🔍 Quick Status* — Instant tracking check\n"
             "• *📋 My Parcels* — View active tracked parcels\n"
             "• *🛑 Stop Tracking* — Stop notifications"
