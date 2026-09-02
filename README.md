@@ -69,6 +69,25 @@ python -m unittest discover -s tests
 
 ---
 
+## ☁️ Deployment on Render
+
+1. Go to [Render Dashboard](https://dashboard.render.com/).
+2. Click **New +** and select **Background Worker**.
+3. Connect your GitHub repository `bdpost-telegram-bot`.
+4. Configure the service settings:
+   - **Name**: `bdpost-telegram-bot`
+   - **Runtime**: `Python 3`
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `python bot.py`
+5. Under **Environment Variables**, add:
+   - `BOT_TOKEN`: `Your Telegram Bot Token`
+   - `POLL_INTERVAL`: `1800`
+   - `DATABASE_PATH`: `bdpost.db`
+   - `PYTHON_VERSION`: `3.12.0`
+6. Click **Create Background Worker**. Render will build and run the bot continuously.
+
+---
+
 ## ☁️ Deployment on PythonAnywhere
 
 1. **Upload/Clone project** to `/home/USERNAME/bdpost-telegram-bot/`.

@@ -1,0 +1,15 @@
+services:
+  - type: worker
+    name: bdpost-telegram-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: POLL_INTERVAL
+        value: "1800"
+      - key: DATABASE_PATH
+        value: "bdpost.db"
+      - key: PYTHON_VERSION
+        value: "3.12.0"
