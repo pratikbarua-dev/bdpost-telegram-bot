@@ -1,7 +1,8 @@
 import asyncio
 import logging
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+from telegram.error import Conflict, NetworkError, TelegramError
 
 import config
 from database.db import Database
@@ -24,6 +25,22 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Global error handler for telegram exceptions.
+    """
+    if isinstance(context.error, Conflict):
+        logger.warning(
+            "Conflict detected: Another instance of this bot is running with the same BOT_TOKEN. "
+            "If you recently redeployed on Render or have the bot running on PythonAnywhere / locally, "
+            "please stop the old instance."
+        )
+    elif isinstance(context.error, NetworkError):
+        logger.warning("Telegram network error: %s", context.error)
+    else:
+        logger.error("Exception while handling an update: %s", context.error, exc_info=context.error)
+
+
 async def post_init(application: Application) -> None:
     # Start web server for Render health check compatibility
     asyncio.create_task(start_health_server())
@@ -43,6 +60,9 @@ def main() -> None:
         .build()
     )
     application.bot_data["db"] = db
+
+    # Register error handler
+    application.add_error_handler(error_handler)
 
     # Command Handlers
     application.add_handler(CommandHandler("start", start_handler))
@@ -74,9 +94,13 @@ def main() -> None:
         logger.warning("JobQueue not initialized. Make sure python-telegram-bot[job-queue] is installed.")
 
     logger.info("Bot is running...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    application.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True
+    )
 
 
 if __name__ == "__main__":
     main()
+
 
