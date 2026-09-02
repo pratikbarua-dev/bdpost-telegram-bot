@@ -1,8 +1,93 @@
+import re
 import hashlib
 import logging
 from typing import Dict, Any, List, Optional
+from bdpost.validator import validate_and_normalize_tracking_number
 
 logger = logging.getLogger(__name__)
+
+
+def clean_tracking_number_field(val: Optional[str]) -> Optional[str]:
+    """
+    Strips labels like 'Latest Tracking Number:\t', 'package tracking number:\t',
+    whitespace, etc., and validates as a proper postal/logistics tracking number.
+    """
+    if not val or not isinstance(val, str):
+        return None
+
+    # Strip known label prefixes
+    cleaned = re.sub(r"^(Latest Tracking Number|package tracking number|Tracking Number|New tracking number|Local tracking number)[\s:\t]+", "", val, flags=re.IGNORECASE)
+    cleaned = cleaned.strip()
+
+    # Find candidate alphanumeric tracking token
+    tokens = re.findall(r"[A-Za-z0-9\-]{4,35}", cleaned)
+    for token in tokens:
+        normalized = validate_and_normalize_tracking_number(token)
+        if normalized:
+            return normalized
+
+    return None
+
+
+def extract_linked_tracking_numbers(data: Dict[str, Any], query_number: str) -> List[Dict[str, str]]:
+    """
+    Extracts secondary/linked tracking numbers discovered from Cainiao response.
+    Returns a list of dicts:
+    [
+        {"tracking_number": "CNG0083981455575", "source": "cainiao", "type": "latest", "discovered_from": query_number},
+        ...
+    ]
+    """
+    discovered: List[Dict[str, str]] = []
+    seen: set[str] = {query_number.strip().upper()}
+
+    if not data or not data.get("success"):
+        return discovered
+
+    modules = data.get("module")
+    if not isinstance(modules, list) or not modules:
+        return discovered
+
+    item = modules[0]
+
+    # Candidate fields to inspect
+    field_mappings = [
+        ("copyRealMailNo", "latest"),
+        ("copyVirtualMailNo", "package"),
+        ("realMailNo", "latest"),
+        ("virtualMailNo", "package")
+    ]
+
+    for field_name, num_type in field_mappings:
+        val = item.get(field_name)
+        cleaned_num = clean_tracking_number_field(val)
+        if cleaned_num and cleaned_num not in seen:
+            seen.add(cleaned_num)
+            discovered.append({
+                "tracking_number": cleaned_num,
+                "source": "cainiao" if cleaned_num.startswith("CNG") or cleaned_num.startswith("AP") else "unknown",
+                "type": num_type,
+                "discovered_from": query_number
+            })
+
+    # Also inspect traces/carrier notes for possible local tracking numbers (e.g. UG... / LP...)
+    detail_list = item.get("detailList") or []
+    for detail in detail_list:
+        desc = detail.get("desc", "") + " " + detail.get("standerdDesc", "")
+        # Look for postal tracking patterns like UG123456789MV or BD tracking numbers
+        matches = re.findall(r"\b([A-Z]{2}\d{9}[A-Z]{2})\b", desc)
+        for m in matches:
+            cleaned_m = validate_and_normalize_tracking_number(m)
+            if cleaned_m and cleaned_m not in seen:
+                seen.add(cleaned_m)
+                discovered.append({
+                    "tracking_number": cleaned_m,
+                    "source": "bdpost" if cleaned_m.endswith("BD") or cleaned_m.endswith("MV") else "cainiao",
+                    "type": "local",
+                    "discovered_from": query_number
+                })
+
+    return discovered
 
 
 def generate_cainiao_event_hash(tracking_number: str, event: Dict[str, Any]) -> str:

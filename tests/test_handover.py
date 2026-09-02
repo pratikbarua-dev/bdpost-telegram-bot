@@ -98,5 +98,29 @@ class TestHandoverAndDualTracking(unittest.TestCase):
         self.assertEqual(len(self.db.get_active_trackings_with_providers()), 0)
 
 
+    def test_tracking_chain_discovery_and_association(self):
+        # User 1 enters AP...
+        shipment_id = self.db.get_or_create_shipment("AP00839881455575", telegram_id=2001, label="AliExpress Item")
+        self.assertIsNotNone(shipment_id)
+
+        # System discovers CNG... and links it
+        self.db.link_tracking_number(shipment_id, "CNG0083981455575", source="cainiao", num_type="latest", discovered_from="AP00839881455575")
+
+        # System discovers UG... and links it
+        self.db.link_tracking_number(shipment_id, "UG251350054MV", source="bdpost", num_type="local", discovered_from="CNG0083981455575")
+
+        chain = self.db.get_tracking_chain_numbers(shipment_id)
+        self.assertEqual(chain, ["AP00839881455575", "CNG0083981455575", "UG251350054MV"])
+
+        # Another user queries by CNG... or UG... -> finds the same shipment!
+        shipment_cng = self.db.get_shipment_by_tracking_number("CNG0083981455575")
+        self.assertIsNotNone(shipment_cng)
+        self.assertEqual(shipment_cng["id"], shipment_id)
+
+        shipment_ug = self.db.get_shipment_by_tracking_number("UG251350054MV")
+        self.assertIsNotNone(shipment_ug)
+        self.assertEqual(shipment_ug["id"], shipment_id)
+
+
 if __name__ == "__main__":
     unittest.main()

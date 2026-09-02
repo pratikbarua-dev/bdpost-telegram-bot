@@ -41,7 +41,11 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
                     display_event = latest_cainiao or latest_bdpost
 
                 label = db.get_parcel_label(telegram_id, tracking_number)
-                msg = f"🔄 *Updated Status:*\n\n{format_status_message(tracking_number, display_event, label=label)}"
+                shipment = db.get_shipment_by_tracking_number(tracking_number)
+                chain_numbers = [t["tracking_number"] for t in shipment.get("tracking_chain", [])] if shipment else None
+                local_num = shipment.get("local_tracking_number") if shipment else None
+
+                msg = f"🔄 *Updated Status:*\n\n{format_status_message(tracking_number, display_event, label=label, tracking_chain=chain_numbers, local_tracking_number=local_num)}"
                 await query.edit_message_text(
                     msg,
                     reply_markup=get_parcel_inline_keyboard(tracking_number),

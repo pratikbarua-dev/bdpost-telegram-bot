@@ -106,5 +106,50 @@ class TestCainiaoParser(unittest.TestCase):
         self.assertEqual(summary["mail_no_source"], "AE")
 
 
+    def test_extract_linked_tracking_numbers(self):
+        from cainiao.parser import extract_linked_tracking_numbers
+
+        # AP response with copyRealMailNo & copyVirtualMailNo
+        ap_response = {
+            "success": True,
+            "module": [
+                {
+                    "mailNo": "AP00839881455575",
+                    "realMailNo": "Latest Tracking Number:\tCNG00839881455575",
+                    "copyRealMailNo": "CNG00839881455575",
+                    "virtualMailNo": "package tracking number:\tCNG00839881455575",
+                    "copyVirtualMailNo": "CNG00839881455575",
+                    "detailList": []
+                }
+            ]
+        }
+        discovered = extract_linked_tracking_numbers(ap_response, "AP00839881455575")
+        self.assertEqual(len(discovered), 1)
+        self.assertEqual(discovered[0]["tracking_number"], "CNG00839881455575")
+        self.assertEqual(discovered[0]["type"], "latest")
+
+    def test_extract_local_ug_from_notes(self):
+        from cainiao.parser import extract_linked_tracking_numbers
+
+        cng_response = {
+            "success": True,
+            "module": [
+                {
+                    "mailNo": "CNG00839881455575",
+                    "detailList": [
+                        {
+                            "desc": "Handed over to local carrier with tracking UG251350054MV",
+                            "standerdDesc": "Handed over to destination carrier"
+                        }
+                    ]
+                }
+            ]
+        }
+        discovered = extract_linked_tracking_numbers(cng_response, "CNG00839881455575")
+        self.assertEqual(len(discovered), 1)
+        self.assertEqual(discovered[0]["tracking_number"], "UG251350054MV")
+        self.assertEqual(discovered[0]["type"], "local")
+
+
 if __name__ == "__main__":
     unittest.main()

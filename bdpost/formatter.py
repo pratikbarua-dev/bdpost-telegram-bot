@@ -11,7 +11,41 @@ def format_country_route(origin: Optional[str], destination: Optional[str]) -> s
     return ""
 
 
-def format_status_message(tracking_number: str, event: Dict, label: Optional[str] = None) -> str:
+from typing import Dict, Optional, List
+from bdpost.parser import is_delivered, is_out_for_delivery, is_arrived_at_post_office
+
+
+def format_country_route(origin: Optional[str], destination: Optional[str]) -> str:
+    origin_str = origin.strip() if origin and origin.strip() and origin.strip().lower() != "not found" else "Unknown"
+    dest_str = destination.strip() if destination and destination.strip() and destination.strip().lower() != "not found" else "Unknown"
+    
+    if origin_str != "Unknown" or dest_str != "Unknown":
+        return f"🌍 {origin_str} → {dest_str}"
+    return ""
+
+
+def format_tracking_chain(chain_numbers: Optional[List[str]]) -> str:
+    if not chain_numbers or len(chain_numbers) <= 1:
+        return ""
+    # Deduplicate preserving order
+    seen = set()
+    ordered = []
+    for num in chain_numbers:
+        if num not in seen:
+            seen.add(num)
+            ordered.append(f"`{num}`")
+    if len(ordered) > 1:
+        return "🔗 *Tracking Chain:*\n" + " → ".join(ordered)
+    return ""
+
+
+def format_status_message(
+    tracking_number: str,
+    event: Dict,
+    label: Optional[str] = None,
+    tracking_chain: Optional[List[str]] = None,
+    local_tracking_number: Optional[str] = None
+) -> str:
     source = event.get("source", "bdpost")
     location = event.get("location", "")
     status = event.get("status", "N/A")
@@ -37,13 +71,26 @@ def format_status_message(tracking_number: str, event: Dict, label: Optional[str
 
     lines.append(f"🕐 *Date:* {date}")
 
+    if local_tracking_number and local_tracking_number != tracking_number:
+        lines.append(f"🇧🇩 *Local Tracking:* `{local_tracking_number}`")
+
     if route:
         lines.append(f"\n{route}")
+
+    chain_str = format_tracking_chain(tracking_chain)
+    if chain_str:
+        lines.append(f"\n{chain_str}")
 
     return "\n".join(lines)
 
 
-def format_event_notification(tracking_number: str, event: Dict, label: Optional[str] = None) -> str:
+def format_event_notification(
+    tracking_number: str,
+    event: Dict,
+    label: Optional[str] = None,
+    tracking_chain: Optional[List[str]] = None,
+    local_tracking_number: Optional[str] = None
+) -> str:
     source = event.get("source", "bdpost")
     status = event.get("status", "N/A")
     location = event.get("location", "")
@@ -56,19 +103,24 @@ def format_event_notification(tracking_number: str, event: Dict, label: Optional
     if is_delivered(status):
         lines = [
             "🎉 *Parcel Delivered!*\n",
-            f"📦 Parcel: {item_title}\n"
+            f"📦 Parcel: {item_title}"
         ]
+        if local_tracking_number and local_tracking_number != tracking_number:
+            lines.append(f"🇧🇩 Local Tracking: `{local_tracking_number}`")
         if location:
             lines.append(f"📍 {location}")
         lines.append(f"📌 {status}")
         lines.append(f"🕐 {date}")
         if route:
             lines.append(f"\n{route}")
+        chain_str = format_tracking_chain(tracking_chain)
+        if chain_str:
+            lines.append(f"\n{chain_str}")
         return "\n".join(lines)
 
     lines = [
         "📦 *Parcel Update*\n",
-        f"Parcel: {item_title}\n"
+        f"Parcel: {item_title}"
     ]
 
     if source == "cainiao":
@@ -88,19 +140,31 @@ def format_event_notification(tracking_number: str, event: Dict, label: Optional
     if route:
         lines.append(f"\n{route}")
 
+    chain_str = format_tracking_chain(tracking_chain)
+    if chain_str:
+        lines.append(f"\n{chain_str}")
+
     return "\n".join(lines)
 
 
-def format_handover_notification(tracking_number: str, event: Dict, label: Optional[str] = None) -> str:
+def format_handover_notification(
+    tracking_number: str,
+    event: Dict,
+    label: Optional[str] = None,
+    local_tracking_number: Optional[str] = None,
+    tracking_chain: Optional[List[str]] = None
+) -> str:
     location = event.get("location", "Bangladesh")
     status = event.get("status", "Arrived in Bangladesh")
     date = event.get("event_date", "")
     item_title = f"`{label}` (`{tracking_number}`)" if label else f"`{tracking_number}`"
 
     lines = [
-        "🇧🇩 *Parcel has reached Bangladesh!*\n",
-        f"Parcel: {item_title}\n"
+        "🇧🇩 *Your parcel has entered Bangladesh's local postal network.*\n",
+        f"Original tracking: `{tracking_number}`"
     ]
+    if local_tracking_number:
+        lines.append(f"Local tracking: `{local_tracking_number}`")
     if location:
         lines.append(f"📍 Location: {location}")
     lines.append(f"📌 Status: {status}")
@@ -108,8 +172,13 @@ def format_handover_notification(tracking_number: str, event: Dict, label: Optio
         lines.append(f"🕐 Date: {date}")
 
     lines.append(
-        "\n🔄 *Tracking has been switched to Bangladesh Post.*\n"
+        "\n🔄 *International tracking has been handed over to Bangladesh Post.*\n"
         "I'll continue monitoring the parcel for local postal updates."
     )
+
+    chain_str = format_tracking_chain(tracking_chain)
+    if chain_str:
+        lines.append(f"\n{chain_str}")
+
     return "\n".join(lines)
 

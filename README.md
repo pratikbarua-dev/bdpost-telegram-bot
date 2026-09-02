@@ -6,19 +6,22 @@ A Telegram bot to track Bangladesh Post parcels as well as AliExpress (Cainiao) 
 
 ## 🌟 Features
 
+- **AliExpress / Cainiao Tracking Chain Discovery**:
+  - Automatically discovers and links multi-stage tracking numbers (`AP...` → `CNG...` → `UG...` / local post) into a single unified shipment.
+  - Users only enter their original AliExpress order number (e.g. `AP00839881455575`), and the bot automatically resolves subsequent identifiers.
+  - Presents one continuous shipment without creating duplicate parcels.
+- **Automated Handover to Bangladesh Post**:
+  - Automatically monitors both international Cainiao milestones and local Bangladesh Post events.
+  - Switches to Bangladesh Post once the parcel enters Bangladesh, stopping international polling and providing continuous local updates.
 - **Custom Parcel Names / Aliases**: Assign custom labels (e.g. `Mechanical Keyboard`) using the `✏️ Rename` button in `📋 My Parcels` or via `/name <tracking_number> <custom name>`. Custom names appear in status queries and notification alerts.
 - **Auto Chat Cleanup**: Automatically removes temporary prompts, input guides, and navigation clutter to keep your Telegram chat history clean and organized.
-- **AliExpress + Bangladesh Post Dual Tracking**:
-  - Automatically queries Cainiao's global tracking endpoint for international legs.
-  - Automatically switches to Bangladesh Post once the parcel reaches Bangladesh/local sorting office (`Arrived at post office`, `DHAKA AIRPORT SORTING OFFICE`, etc.).
-  - Disables Cainiao requests after handover to save resources while keeping continuous shipment history.
 - **Domestic & International Bangladesh Post Tracking**: Seamlessly handles both international (`search1.php`) and domestic Bangladesh-to-Bangladesh (`search2.php`) tracking.
 - **Interactive Button-Based Interface**: Intuitive persistent reply menus, inline action buttons (`Refresh`, `Rename ✏️`, `Stop 🛑`, `Back to Home 🏠`), and guided prompts.
 - **Multi-tracking Support**: Track or query status for multiple parcels at once (e.g. `/track NUM1 NUM2` or `NUM1, NUM2`).
 - **Real-time Tracking**: Check current parcel status with quick buttons or `/status <tracking_number...>`.
 - **Automated Notifications**: Real-time notifications for both Cainiao international milestones and Bangladesh Post local events.
 - **Auto-Stop on Delivery**: Once a parcel is delivered, notifications are finalized and tracking is automatically completed.
-- **Smart Event Deduplication**: Deterministic SHA-256 event hashing prevents duplicate notifications across both providers.
+- **Smart Event Deduplication**: Deterministic SHA-256 event hashing prevents duplicate notifications across both providers and linked numbers.
 - **Keep-Alive Ping Endpoint**: Includes a `/ping` and `/health` HTTP server to keep free cloud instances (e.g. Render) alive 24/7 with external uptime pingers.
 
 ---
