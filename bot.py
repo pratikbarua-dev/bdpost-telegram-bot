@@ -46,6 +46,7 @@ def main() -> None:
 
     # Command Handlers
     application.add_handler(CommandHandler("start", start_handler))
+    application.add_handler(CommandHandler("home", start_handler))
     application.add_handler(CommandHandler("help", help_handler))
     application.add_handler(CommandHandler("track", track_command))
     application.add_handler(CommandHandler("status", status_command))

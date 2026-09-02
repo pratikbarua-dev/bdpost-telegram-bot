@@ -113,3 +113,22 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
             reply_markup=get_my_parcels_inline_keyboard(trackings),
             parse_mode="Markdown"
         )
+
+    elif data == "go_home":
+        welcome_text = (
+            "👋 Welcome to *Bangladesh Post Parcel Tracker*!\n\n"
+            "Use the buttons below or send commands to track your parcels and get automatic status updates.\n\n"
+            "🔘 *Quick Menu:*\n"
+            "• *📦 Track Parcel* — Subscribe for updates\n"
+            "• *🔍 Quick Status* — Instant tracking check\n"
+            "• *📋 My Parcels* — View active tracked parcels\n"
+            "• *🛑 Stop Tracking* — Stop notifications"
+        )
+        await query.edit_message_text(
+            welcome_text,
+            parse_mode="Markdown"
+        )
+        await query.message.reply_text(
+            "🏠 Returned to Home Menu.",
+            reply_markup=get_main_keyboard()
+        )

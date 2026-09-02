@@ -18,13 +18,10 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     text = update.message.text.strip()
     state = context.user_data.get("state")
 
-    # Handle Cancel
-    if text in ["❌ Cancel", "cancel", "/cancel"]:
+    # Handle Cancel & Home
+    if text in ["❌ Cancel", "cancel", "/cancel", "🏠 Home", "🏠 Back to Home", "home", "/home"]:
         context.user_data.pop("state", None)
-        await update.message.reply_text(
-            "Action cancelled.",
-            reply_markup=get_main_keyboard()
-        )
+        await start_handler(update, context)
         return
 
     # Button: 📦 Track Parcel

@@ -9,7 +9,7 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         ["📦 Track Parcel", "🔍 Quick Status"],
         ["📋 My Parcels", "🛑 Stop Tracking"],
-        ["ℹ️ Help"]
+        ["ℹ️ Help", "🏠 Home"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -18,7 +18,9 @@ def get_cancel_keyboard() -> ReplyKeyboardMarkup:
     """
     Keyboard shown during an active input prompt.
     """
-    keyboard = [["❌ Cancel"]]
+    keyboard = [
+        ["❌ Cancel", "🏠 Back to Home"]
+    ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 
@@ -30,6 +32,9 @@ def get_parcel_inline_keyboard(tracking_number: str) -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton("🔄 Refresh Status", callback_data=f"refresh:{tracking_number}"),
             InlineKeyboardButton("🛑 Stop Tracking", callback_data=f"stop:{tracking_number}")
+        ],
+        [
+            InlineKeyboardButton("🏠 Back to Home", callback_data="go_home")
         ]
     ]
     return InlineKeyboardMarkup(buttons)
@@ -37,7 +42,7 @@ def get_parcel_inline_keyboard(tracking_number: str) -> InlineKeyboardMarkup:
 
 def get_my_parcels_inline_keyboard(trackings: List[Dict]) -> InlineKeyboardMarkup:
     """
-    Inline buttons list for each parcel in /my, with Refresh All and Stop All options.
+    Inline buttons list for each parcel in /my, with Refresh All, Stop All, and Home options.
     """
     buttons = []
     for item in trackings:
@@ -51,6 +56,9 @@ def get_my_parcels_inline_keyboard(trackings: List[Dict]) -> InlineKeyboardMarku
         InlineKeyboardButton("🔄 Refresh All", callback_data="refresh_all"),
         InlineKeyboardButton("🛑 Stop All", callback_data="stop_all_confirm")
     ])
+    buttons.append([
+        InlineKeyboardButton("🏠 Back to Home", callback_data="go_home")
+    ])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -62,6 +70,10 @@ def get_stop_all_confirm_keyboard() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton("✅ Yes, Stop All", callback_data="stop_all_confirmed"),
             InlineKeyboardButton("❌ Cancel", callback_data="cancel_action")
+        ],
+        [
+            InlineKeyboardButton("🏠 Back to Home", callback_data="go_home")
         ]
     ]
     return InlineKeyboardMarkup(buttons)
+
