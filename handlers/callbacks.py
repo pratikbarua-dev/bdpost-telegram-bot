@@ -40,7 +40,8 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
                 else:
                     display_event = latest_cainiao or latest_bdpost
 
-                msg = f"🔄 *Updated Status:*\n\n{format_status_message(tracking_number, display_event)}"
+                label = db.get_parcel_label(telegram_id, tracking_number)
+                msg = f"🔄 *Updated Status:*\n\n{format_status_message(tracking_number, display_event, label=label)}"
                 await query.edit_message_text(
                     msg,
                     reply_markup=get_parcel_inline_keyboard(tracking_number),
@@ -51,6 +52,25 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         except Exception as e:
             logger.error("Error refreshing %s: %s", tracking_number, e)
             await query.message.reply_text(f"⚠️ Could not refresh status for `{tracking_number}` right now.")
+
+    elif data.startswith("rename:"):
+        tracking_number = data.split(":", 1)[1]
+        current_label = db.get_parcel_label(telegram_id, tracking_number)
+        context.user_data["state"] = "waiting_for_rename"
+        context.user_data["rename_tracking"] = tracking_number
+
+        label_note = f" (Current name: *{current_label}*)" if current_label else ""
+        from handlers.keyboards import get_cancel_keyboard
+        from handlers.cleanup import record_prompt_message
+
+        prompt = await query.message.reply_text(
+            f"✏️ *Rename Parcel:* `{tracking_number}`{label_note}\n\n"
+            "Please send the custom name/label for this parcel (e.g., `Mechanical Keyboard` or `Phone Case`).\n"
+            "Type `none` to remove the name.",
+            reply_markup=get_cancel_keyboard(),
+            parse_mode="Markdown"
+        )
+        record_prompt_message(context, prompt.message_id)
 
     elif data.startswith("stop:"):
         tracking_number = data.split(":", 1)[1]

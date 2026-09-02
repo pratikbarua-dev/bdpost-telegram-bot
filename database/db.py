@@ -31,6 +31,7 @@ class Database:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     telegram_id INTEGER NOT NULL,
                     tracking_number TEXT NOT NULL,
+                    label TEXT,
                     active INTEGER NOT NULL DEFAULT 1,
                     cainiao_enabled INTEGER NOT NULL DEFAULT 0,
                     bdpost_enabled INTEGER NOT NULL DEFAULT 1,
@@ -62,6 +63,7 @@ class Database:
 
             # Migrations for existing databases
             self._migrate_table(cursor, "trackings", [
+                ("label", "TEXT"),
                 ("cainiao_enabled", "INTEGER NOT NULL DEFAULT 0"),
                 ("bdpost_enabled", "INTEGER NOT NULL DEFAULT 1"),
                 ("handover_detected", "INTEGER NOT NULL DEFAULT 0"),
@@ -195,15 +197,51 @@ class Database:
             conn.commit()
             return cursor.rowcount
 
+    def set_parcel_label(self, telegram_id: int, tracking_number: str, label: Optional[str]) -> bool:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE trackings
+                SET label = ?
+                WHERE telegram_id = ? AND tracking_number = ? AND active = 1
+            """, (label.strip() if label else None, telegram_id, tracking_number))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def get_parcel_label(self, telegram_id: int, tracking_number: str) -> Optional[str]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT label
+                FROM trackings
+                WHERE telegram_id = ? AND tracking_number = ?
+                LIMIT 1
+            """, (telegram_id, tracking_number))
+            row = cursor.fetchone()
+            if row and row["label"]:
+                return row["label"]
+            return None
+
     def get_user_active_trackings(self, telegram_id: int) -> List[Dict]:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT tracking_number, cainiao_enabled, bdpost_enabled, handover_detected, created_at, last_checked_at
+                SELECT tracking_number, label, cainiao_enabled, bdpost_enabled, handover_detected, created_at, last_checked_at
                 FROM trackings
                 WHERE telegram_id = ? AND active = 1
                 ORDER BY created_at DESC
             """, (telegram_id,))
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+
+    def get_subscribers_with_labels_for_tracking(self, tracking_number: str) -> List[Dict]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT telegram_id, label
+                FROM trackings
+                WHERE tracking_number = ? AND active = 1
+            """, (tracking_number,))
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
 

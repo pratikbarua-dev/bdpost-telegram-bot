@@ -35,8 +35,8 @@ async def check_all_trackings(context: ContextTypes.DEFAULT_TYPE) -> None:
         bdpost_enabled = bool(item.get("bdpost_enabled", 1))
         handover_detected = bool(item.get("handover_detected", 0))
 
-        subscribers = db.get_subscribers_for_tracking(tracking_number)
-        if not subscribers:
+        subscribers_data = db.get_subscribers_with_labels_for_tracking(tracking_number)
+        if not subscribers_data:
             continue
 
         # -------------------------------------------------------------
@@ -53,8 +53,7 @@ async def check_all_trackings(context: ContextTypes.DEFAULT_TYPE) -> None:
                     if new_cainiao_events:
                         logger.info("Cainiao new event(s) for %s: %d", tracking_number, len(new_cainiao_events))
                         for event in new_cainiao_events:
-                            msg_text = format_event_notification(tracking_number, event)
-                            await _notify_users(context, db, subscribers, tracking_number, msg_text)
+                            await _notify_users(context, db, subscribers_data, tracking_number, event)
             except (CainiaoUnavailableError, CainiaoError) as ce:
                 logger.warning("Cainiao check failed for %s: %s", tracking_number, ce)
             except Exception as e:
@@ -80,8 +79,7 @@ async def check_all_trackings(context: ContextTypes.DEFAULT_TYPE) -> None:
                                 cainiao_enabled = False
 
                                 # Send handover notification
-                                handover_msg = format_handover_notification(tracking_number, event)
-                                await _notify_users(context, db, subscribers, tracking_number, handover_msg)
+                                await _notify_users(context, db, subscribers_data, tracking_number, event, is_handover=True)
                                 break
 
                     new_bdpost_events = db.save_events(tracking_number, bdpost_events)
@@ -91,8 +89,7 @@ async def check_all_trackings(context: ContextTypes.DEFAULT_TYPE) -> None:
                         for event in new_bdpost_events:
                             if is_delivered(event.get("status", "")):
                                 has_delivered = True
-                            msg_text = format_event_notification(tracking_number, event)
-                            await _notify_users(context, db, subscribers, tracking_number, msg_text)
+                            await _notify_users(context, db, subscribers_data, tracking_number, event)
 
                         if has_delivered:
                             logger.info("Parcel %s has been delivered. Deactivating tracking.", tracking_number)
@@ -110,11 +107,20 @@ async def check_all_trackings(context: ContextTypes.DEFAULT_TYPE) -> None:
 async def _notify_users(
     context: ContextTypes.DEFAULT_TYPE,
     db: Database,
-    subscribers: List[int],
+    subscribers_data: List[Dict],
     tracking_number: str,
-    text: str
+    event: Dict,
+    is_handover: bool = False
 ) -> None:
-    for user_id in subscribers:
+    for sub in subscribers_data:
+        user_id = sub["telegram_id"]
+        label = sub.get("label")
+
+        if is_handover:
+            text = format_handover_notification(tracking_number, event, label=label)
+        else:
+            text = format_event_notification(tracking_number, event, label=label)
+
         try:
             await context.bot.send_message(
                 chat_id=user_id,

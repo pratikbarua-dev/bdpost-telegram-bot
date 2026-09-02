@@ -79,5 +79,25 @@ class TestDatabaseOperations(unittest.TestCase):
         self.assertEqual(len(self.db.get_all_active_tracking_numbers()), 0)
 
 
+    def test_parcel_labeling(self):
+        self.db.add_or_reactivate_tracking(telegram_id=555, tracking_number="UG251542831MV")
+        self.assertIsNone(self.db.get_parcel_label(555, "UG251542831MV"))
+
+        # Set label
+        updated = self.db.set_parcel_label(555, "UG251542831MV", "My Wireless Mouse")
+        self.assertTrue(updated)
+        self.assertEqual(self.db.get_parcel_label(555, "UG251542831MV"), "My Wireless Mouse")
+
+        # Verify subscribers with labels
+        subs = self.db.get_subscribers_with_labels_for_tracking("UG251542831MV")
+        self.assertEqual(len(subs), 1)
+        self.assertEqual(subs[0]["telegram_id"], 555)
+        self.assertEqual(subs[0]["label"], "My Wireless Mouse")
+
+        # Remove label
+        self.db.set_parcel_label(555, "UG251542831MV", None)
+        self.assertIsNone(self.db.get_parcel_label(555, "UG251542831MV"))
+
+
 if __name__ == "__main__":
     unittest.main()

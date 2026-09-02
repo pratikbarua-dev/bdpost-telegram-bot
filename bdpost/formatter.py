@@ -11,7 +11,7 @@ def format_country_route(origin: Optional[str], destination: Optional[str]) -> s
     return ""
 
 
-def format_status_message(tracking_number: str, event: Dict) -> str:
+def format_status_message(tracking_number: str, event: Dict, label: Optional[str] = None) -> str:
     source = event.get("source", "bdpost")
     location = event.get("location", "")
     status = event.get("status", "N/A")
@@ -19,7 +19,8 @@ def format_status_message(tracking_number: str, event: Dict) -> str:
     desc = event.get("description", "")
     route = format_country_route(event.get("origin_country"), event.get("destination_country"))
 
-    lines = [f"📦 *Tracking:* `{tracking_number}`\n"]
+    header = f"📦 *Parcel:* `{label}` (`{tracking_number}`)\n" if label else f"📦 *Tracking:* `{tracking_number}`\n"
+    lines = [header]
 
     if source == "cainiao":
         lines.append("🚚 *Provider:* AliExpress / Cainiao")
@@ -42,7 +43,7 @@ def format_status_message(tracking_number: str, event: Dict) -> str:
     return "\n".join(lines)
 
 
-def format_event_notification(tracking_number: str, event: Dict) -> str:
+def format_event_notification(tracking_number: str, event: Dict, label: Optional[str] = None) -> str:
     source = event.get("source", "bdpost")
     status = event.get("status", "N/A")
     location = event.get("location", "")
@@ -50,10 +51,12 @@ def format_event_notification(tracking_number: str, event: Dict) -> str:
     desc = event.get("description", "")
     route = format_country_route(event.get("origin_country"), event.get("destination_country"))
 
+    item_title = f"`{label}` (`{tracking_number}`)" if label else f"`{tracking_number}`"
+
     if is_delivered(status):
         lines = [
             "🎉 *Parcel Delivered!*\n",
-            f"📦 Tracking: `{tracking_number}`\n"
+            f"📦 Parcel: {item_title}\n"
         ]
         if location:
             lines.append(f"📍 {location}")
@@ -65,7 +68,7 @@ def format_event_notification(tracking_number: str, event: Dict) -> str:
 
     lines = [
         "📦 *Parcel Update*\n",
-        f"Tracking: `{tracking_number}`\n"
+        f"Parcel: {item_title}\n"
     ]
 
     if source == "cainiao":
@@ -88,14 +91,15 @@ def format_event_notification(tracking_number: str, event: Dict) -> str:
     return "\n".join(lines)
 
 
-def format_handover_notification(tracking_number: str, event: Dict) -> str:
+def format_handover_notification(tracking_number: str, event: Dict, label: Optional[str] = None) -> str:
     location = event.get("location", "Bangladesh")
     status = event.get("status", "Arrived in Bangladesh")
     date = event.get("event_date", "")
+    item_title = f"`{label}` (`{tracking_number}`)" if label else f"`{tracking_number}`"
 
     lines = [
         "🇧🇩 *Parcel has reached Bangladesh!*\n",
-        f"Tracking: `{tracking_number}`\n"
+        f"Parcel: {item_title}\n"
     ]
     if location:
         lines.append(f"📍 Location: {location}")

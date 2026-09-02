@@ -7,7 +7,7 @@ import config
 from database.db import Database
 from handlers.start import start_handler, help_handler
 from handlers.tracking import track_command, status_command
-from handlers.commands import my_command, stop_command
+from handlers.commands import my_command, stop_command, name_command
 from handlers.messages import message_router
 from handlers.callbacks import callback_query_handler
 from scheduler.checker import check_all_trackings
@@ -52,6 +52,8 @@ def main() -> None:
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("my", my_command))
     application.add_handler(CommandHandler("stop", stop_command))
+    application.add_handler(CommandHandler("name", name_command))
+    application.add_handler(CommandHandler("rename", name_command))
 
     # Inline Button Callback Handler
     application.add_handler(CallbackQueryHandler(callback_query_handler))

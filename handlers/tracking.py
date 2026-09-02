@@ -96,9 +96,10 @@ async def process_track_numbers(
             if is_already_delivered:
                 # Completed shipment
                 db.stop_tracking(telegram_id, tracking_number)
+                label = db.get_parcel_label(telegram_id, tracking_number)
                 msg = (
                     f"🎉 *Parcel {tracking_number} is already Delivered!*\n\n"
-                    f"{format_status_message(tracking_number, latest_bdpost)}\n\n"
+                    f"{format_status_message(tracking_number, latest_bdpost, label=label)}\n\n"
                     "Tracking is complete and will not be polled."
                 )
                 await update.message.reply_text(
@@ -117,10 +118,11 @@ async def process_track_numbers(
                     handover_detected=handover_detected
                 )
                 display_event = latest_bdpost or latest_cainiao
+                label = db.get_parcel_label(telegram_id, tracking_number)
                 msg = (
                     f"✅ *Subscribed to updates for {tracking_number}!*\n"
                     "🇧🇩 *Active Provider:* Bangladesh Post\n\n"
-                    f"{format_status_message(tracking_number, display_event)}"
+                    f"{format_status_message(tracking_number, display_event, label=label)}"
                 )
                 await update.message.reply_text(
                     msg,
@@ -138,11 +140,12 @@ async def process_track_numbers(
                     handover_detected=handover_detected
                 )
                 display_event = latest_cainiao
+                label = db.get_parcel_label(telegram_id, tracking_number)
                 msg = (
                     f"✅ *Subscribed to Dual Tracking for {tracking_number}!*\n"
                     "🚚 *Current Provider:* AliExpress / Cainiao\n"
                     "🔄 *Note:* Tracking will automatically switch to Bangladesh Post upon local arrival.\n\n"
-                    f"{format_status_message(tracking_number, display_event)}"
+                    f"{format_status_message(tracking_number, display_event, label=label)}"
                 )
                 await update.message.reply_text(
                     msg,
@@ -160,9 +163,10 @@ async def process_track_numbers(
                     handover_detected=handover_detected
                 )
                 display_event = latest_bdpost
+                label = db.get_parcel_label(telegram_id, tracking_number)
                 msg = (
                     f"✅ *Subscribed to updates for {tracking_number}!*\n\n"
-                    f"{format_status_message(tracking_number, display_event)}"
+                    f"{format_status_message(tracking_number, display_event, label=label)}"
                 )
                 await update.message.reply_text(
                     msg,
