@@ -151,5 +151,17 @@ class TestCainiaoParser(unittest.TestCase):
         self.assertEqual(discovered[0]["type"], "local")
 
 
+    def test_no_hardcoded_cookies_in_client_source(self):
+        import os
+        client_path = os.path.join(os.path.dirname(__file__), "..", "cainiao", "client.py")
+        with open(client_path, "r", encoding="utf-8") as f:
+            src = f.read()
+        # Verify no hardcoded cookie tokens
+        self.assertNotIn("65759465-2319-4507-9c5a-3cea766bdbf6", src)
+        self.assertNotIn("57d967ec-0b57-4395-9cbd-931f9f1b99be", src)
+        self.assertNotIn("XSRF-TOKEN=", src)
+        self.assertNotIn("arms_uid=", src)
+
+
 if __name__ == "__main__":
     unittest.main()
