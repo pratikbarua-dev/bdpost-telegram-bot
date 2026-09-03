@@ -49,8 +49,12 @@ async def post_init(application: Application) -> None:
 def main() -> None:
     logger.info("Initializing Bangladesh Post Telegram Bot...")
 
-    # Initialize Database (supports PostgreSQL if DATABASE_URL is set, otherwise SQLite)
-    db = Database(db_path=config.DATABASE_PATH, db_url=config.DATABASE_URL)
+    # Initialize Database: Supabase REST API (if SUPABASE_URL & SUPABASE_KEY set), PostgreSQL (if DATABASE_URL set), or SQLite
+    if config.SUPABASE_URL and config.SUPABASE_KEY:
+        from database.supabase_db import SupabaseDatabase
+        db = SupabaseDatabase(config.SUPABASE_URL, config.SUPABASE_KEY)
+    else:
+        db = Database(db_path=config.DATABASE_PATH, db_url=config.DATABASE_URL)
 
     # Initialize Application
     application = (

@@ -108,11 +108,11 @@ async def discover_and_fetch_chain(
     return all_cainiao_events, all_bdpost_events, all_chain_numbers, local_tracking_number
 
 
-async def fetch_tracking_sources(tracking_number: str) -> tuple[list[dict], list[dict]]:
+async def fetch_tracking_sources(db: Any, tracking_number: str) -> tuple[list[dict], list[dict]]:
     """
     Convenience wrapper to fetch tracking sources across the chain.
     """
-    cainiao_events, bdpost_events, _, _ = await discover_and_fetch_chain(Database("bdpost.db"), tracking_number)
+    cainiao_events, bdpost_events, _, _ = await discover_and_fetch_chain(db, tracking_number)
     return cainiao_events, bdpost_events
 
 

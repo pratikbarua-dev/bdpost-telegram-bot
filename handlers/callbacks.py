@@ -24,7 +24,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     if data.startswith("refresh:"):
         tracking_number = data.split(":", 1)[1]
         try:
-            cainiao_events, bdpost_events = await fetch_tracking_sources(tracking_number)
+            cainiao_events, bdpost_events = await fetch_tracking_sources(db, tracking_number)
             all_events = cainiao_events + bdpost_events
             if all_events:
                 db.save_events(tracking_number, all_events)
@@ -138,7 +138,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         for idx, item in enumerate(trackings, 1):
             num = item["tracking_number"]
             try:
-                cainiao_events, bdpost_events = await fetch_tracking_sources(num)
+                cainiao_events, bdpost_events = await fetch_tracking_sources(db, num)
                 all_events = cainiao_events + bdpost_events
                 if all_events:
                     db.save_events(num, all_events)
