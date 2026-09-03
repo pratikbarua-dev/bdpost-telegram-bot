@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 from telegram import Update
 from telegram.ext import ContextTypes
 
