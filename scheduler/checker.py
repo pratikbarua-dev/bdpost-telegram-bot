@@ -174,7 +174,7 @@ async def check_all_trackings(context: ContextTypes.DEFAULT_TYPE) -> None:
             lbl = sub.get("label")
             msg = format_expiry_notification(p_num, label=lbl)
             try:
-                await context.bot.send_message(chat_id=uid, text=msg, parse_mode="Markdown")
+                await context.bot.send_message(chat_id=uid, text=msg, parse_mode="HTML")
             except Exception as e:
                 logger.debug("Failed to send expiry notification to %s: %s", uid, e)
 
@@ -212,7 +212,7 @@ async def _notify_subscribers(
             await context.bot.send_message(
                 chat_id=user_id,
                 text=text,
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
         except Forbidden:
             logger.warning("Bot was blocked by user %s. Stopping tracking.", user_id)

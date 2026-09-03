@@ -45,17 +45,23 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
                 chain_numbers = [t["tracking_number"] for t in shipment.get("tracking_chain", [])] if shipment else None
                 local_num = shipment.get("local_tracking_number") if shipment else None
 
-                msg = f"🔄 *Updated Status:*\n\n{format_status_message(tracking_number, display_event, label=label, tracking_chain=chain_numbers, local_tracking_number=local_num)}"
+                msg = format_status_message(
+                    tracking_number, display_event,
+                    label=label,
+                    tracking_chain=chain_numbers,
+                    local_tracking_number=local_num,
+                    header_title="🔄 <b>Updated Status</b>"
+                )
                 await query.edit_message_text(
                     msg,
                     reply_markup=get_parcel_inline_keyboard(tracking_number),
-                    parse_mode="Markdown"
+                    parse_mode="HTML"
                 )
             else:
-                await query.message.reply_text(f"🔎 No information found for `{tracking_number}`.")
+                await query.message.reply_text(f"🔎 No information found for <code>{tracking_number}</code>.", parse_mode="HTML")
         except Exception as e:
             logger.error("Error refreshing %s: %s", tracking_number, e)
-            await query.message.reply_text(f"⚠️ Could not refresh status for `{tracking_number}` right now.")
+            await query.message.reply_text(f"⚠️ Could not refresh status for <code>{tracking_number}</code> right now.", parse_mode="HTML")
 
     elif data.startswith("rename:"):
         tracking_number = data.split(":", 1)[1]
@@ -63,16 +69,16 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         context.user_data["state"] = "waiting_for_rename"
         context.user_data["rename_tracking"] = tracking_number
 
-        label_note = f" (Current name: *{current_label}*)" if current_label else ""
+        label_note = f" (Current name: <b>{current_label}</b>)" if current_label else ""
         from handlers.keyboards import get_cancel_keyboard
         from handlers.cleanup import record_prompt_message
 
         prompt = await query.message.reply_text(
-            f"✏️ *Rename Parcel:* `{tracking_number}`{label_note}\n\n"
-            "Please send the custom name/label for this parcel (e.g., `Mechanical Keyboard` or `Phone Case`).\n"
-            "Type `none` to remove the name.",
+            f"✏️ <b>Rename Parcel:</b> <code>{tracking_number}</code>{label_note}\n\n"
+            "Please send the custom name for this parcel (e.g., <code>Mechanical Keyboard</code> or <code>Phone Case</code>).\n"
+            "Type <code>none</code> to remove the custom name.",
             reply_markup=get_cancel_keyboard(),
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
         record_prompt_message(context, prompt.message_id)
 
@@ -81,29 +87,29 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         stopped = db.stop_tracking(telegram_id, tracking_number)
         if stopped:
             await query.edit_message_text(
-                f"🛑 *Stopped tracking* `{tracking_number}`.\n\nYou will no longer receive notifications for this parcel.",
-                parse_mode="Markdown"
+                f"🛑 <b>Stopped tracking</b> <code>{tracking_number}</code>.\n\nYou will no longer receive notifications for this parcel.",
+                parse_mode="HTML"
             )
         else:
             await query.edit_message_text(
-                f"⚠️ You are not actively tracking `{tracking_number}`.",
-                parse_mode="Markdown"
+                f"⚠️ You are not actively tracking <code>{tracking_number}</code>.",
+                parse_mode="HTML"
             )
 
     elif data == "stop_all_confirm":
         from handlers.keyboards import get_stop_all_confirm_keyboard
         await query.edit_message_text(
-            "⚠️ *Are you sure you want to stop tracking all your parcels?*",
+            "⚠️ <b>Are you sure you want to stop tracking all your parcels?</b>",
             reply_markup=get_stop_all_confirm_keyboard(),
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
 
     elif data == "stop_all_confirmed":
         count = db.stop_all_trackings(telegram_id)
         if count > 0:
             await query.edit_message_text(
-                f"🛑 *Stopped tracking all {count} parcel(s).*\n\nYou will not receive notifications.",
-                parse_mode="Markdown"
+                f"🛑 <b>Stopped tracking all {count} parcel(s).</b>\n\nYou will not receive notifications.",
+                parse_mode="HTML"
             )
         else:
             await query.edit_message_text("⚠️ You do not have any active parcels.")
@@ -112,9 +118,9 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         trackings = db.get_user_active_trackings(telegram_id)
         if trackings:
             await query.edit_message_text(
-                "📦 *Your Tracked Parcels*",
+                "📦 <b>Your Tracked Parcels</b>",
                 reply_markup=get_my_parcels_inline_keyboard(trackings),
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
         else:
             await query.edit_message_text("Action canceled.")
@@ -125,7 +131,10 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
             await query.edit_message_text("📦 You aren't tracking any parcels yet.")
             return
 
-        lines = ["🔄 *Refreshed Tracked Parcels:*\n"]
+        lines = [
+            "🔄 <b>Refreshed Active Parcels</b>",
+            "━━━━━━━━━━━━━━━━━━━━"
+        ]
         for idx, item in enumerate(trackings, 1):
             num = item["tracking_number"]
             try:
@@ -139,33 +148,37 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
                     latest_cainiao = get_latest_event(cainiao_events)
                     display = latest_bdpost or latest_cainiao
                     src = "🇧🇩 BD Post" if display.get("source") == "bdpost" else "🚚 Cainiao"
-                    lines.append(f"{idx}. *{num}* ({src})\n   📌 {display.get('status', 'N/A')}\n")
+                    lines.append(f"{idx}. <code>{num}</code> [{src}]\n   📌 {display.get('status', 'N/A')}\n")
                 else:
-                    lines.append(f"{idx}. *{num}*\n   (No records found)\n")
+                    lines.append(f"{idx}. <code>{num}</code>\n   ⏳ Awaiting scan\n")
             except Exception:
                 latest = db.get_latest_event_for_tracking(num)
                 status = latest.get("status", "N/A") if latest else "N/A"
-                lines.append(f"{idx}. *{num}*\n   📌 {status} (Cached)\n")
+                lines.append(f"{idx}. <code>{num}</code>\n   📌 {status} (Cached)\n")
+
+        lines.append("━━━━━━━━━━━━━━━━━━━━")
 
         await query.edit_message_text(
             "\n".join(lines),
             reply_markup=get_my_parcels_inline_keyboard(trackings),
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
 
     elif data == "go_home":
         welcome_text = (
-            "👋 Welcome to *Bangladesh Post & AliExpress Parcel Tracker*!\n\n"
-            "Use the buttons below or send commands to track your parcels and get automatic status updates.\n\n"
-            "🔘 *Quick Menu:*\n"
-            "• *📦 Track Parcel* — Subscribe for updates (AliExpress & BD Post)\n"
-            "• *🔍 Quick Status* — Instant tracking check\n"
-            "• *📋 My Parcels* — View active tracked parcels\n"
-            "• *🛑 Stop Tracking* — Stop notifications"
+            "👋 <b>Welcome to Bangladesh Post & AliExpress Tracker!</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Track local Bangladesh Post parcels as well as AliExpress (Cainiao) shipments with automated handover upon arrival in Bangladesh.\n\n"
+            "🔘 <b>Quick Guide:</b>\n"
+            "• Tap <b>📦 Track Parcel</b> to subscribe for automatic notifications\n"
+            "• Tap <b>🔍 Quick Status</b> for an instant lookup without subscribing\n"
+            "• Tap <b>📋 My Parcels</b> to view, refresh, or rename (✏️) your parcels\n"
+            "• Tap <b>🛑 Stop Tracking</b> to unsubscribe from updates\n"
+            "━━━━━━━━━━━━━━━━━━━━"
         )
         await query.edit_message_text(
             welcome_text,
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
         await query.message.reply_text(
             "🏠 Returned to Home Menu.",

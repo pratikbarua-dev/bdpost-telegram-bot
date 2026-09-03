@@ -164,14 +164,11 @@ async def process_track_numbers(
                     handover_detected=0,
                     local_tracking_number=local_num
                 )
-                msg = (
-                    f"✅ *Tracking Added!*\n\n"
-                    f"{format_pending_status_message(tracking_number, label=label, tracking_chain=chain_numbers, day_number=1)}"
-                )
+                msg = format_pending_status_message(tracking_number, label=label, tracking_chain=chain_numbers, day_number=1)
                 await update.message.reply_text(
                     msg,
                     reply_markup=get_parcel_inline_keyboard(tracking_number),
-                    parse_mode="Markdown"
+                    parse_mode="HTML"
                 )
                 continue
 
@@ -190,14 +187,17 @@ async def process_track_numbers(
             if is_already_delivered:
                 # Completed shipment
                 db.deactivate_shipment_on_delivery(shipment_id)
-                msg = (
-                    f"🎉 *Parcel is Delivered!*\n\n"
-                    f"{format_status_message(tracking_number, latest_bdpost, label=label, tracking_chain=chain_numbers, local_tracking_number=local_num)}\n\n"
-                    "Tracking is complete and will not be polled."
+                msg = format_status_message(
+                    tracking_number, latest_bdpost,
+                    label=label,
+                    tracking_chain=chain_numbers,
+                    local_tracking_number=local_num,
+                    header_title="🎉 <b>Parcel Delivered</b>"
                 )
                 await update.message.reply_text(
                     msg,
-                    reply_markup=get_main_keyboard()
+                    reply_markup=get_main_keyboard(),
+                    parse_mode="HTML"
                 )
             elif has_handover:
                 # Parcel is already in Bangladesh
@@ -210,14 +210,17 @@ async def process_track_numbers(
                     local_tracking_number=local_num
                 )
                 display_event = latest_bdpost or latest_cainiao
-                msg = (
-                    f"✅ *Subscribed to updates!*\n"
-                    "🇧🇩 *Active Provider:* Bangladesh Post\n\n"
-                    f"{format_status_message(tracking_number, display_event, label=label, tracking_chain=chain_numbers, local_tracking_number=local_num)}"
+                msg = format_status_message(
+                    tracking_number, display_event,
+                    label=label,
+                    tracking_chain=chain_numbers,
+                    local_tracking_number=local_num,
+                    header_title="✅ <b>Subscribed to Updates</b>"
                 )
                 await update.message.reply_text(
                     msg,
-                    reply_markup=get_parcel_inline_keyboard(tracking_number)
+                    reply_markup=get_parcel_inline_keyboard(tracking_number),
+                    parse_mode="HTML"
                 )
             elif cainiao_events:
                 # International Cainiao / AliExpress tracking active, waiting for BD arrival
@@ -229,15 +232,17 @@ async def process_track_numbers(
                     local_tracking_number=local_num
                 )
                 display_event = latest_cainiao
-                msg = (
-                    f"✅ *Subscribed to Dual Tracking!*\n"
-                    "🚚 *Current Provider:* AliExpress / Cainiao\n"
-                    "🔄 *Note:* Tracking will automatically switch to Bangladesh Post upon local arrival.\n\n"
-                    f"{format_status_message(tracking_number, display_event, label=label, tracking_chain=chain_numbers, local_tracking_number=local_num)}"
+                msg = format_status_message(
+                    tracking_number, display_event,
+                    label=label,
+                    tracking_chain=chain_numbers,
+                    local_tracking_number=local_num,
+                    header_title="✅ <b>Subscribed to Dual Tracking</b>"
                 )
                 await update.message.reply_text(
                     msg,
-                    reply_markup=get_parcel_inline_keyboard(tracking_number)
+                    reply_markup=get_parcel_inline_keyboard(tracking_number),
+                    parse_mode="HTML"
                 )
             else:
                 # Pure Bangladesh Post tracking
@@ -249,13 +254,17 @@ async def process_track_numbers(
                     local_tracking_number=local_num
                 )
                 display_event = latest_bdpost
-                msg = (
-                    f"✅ *Subscribed to updates!*\n\n"
-                    f"{format_status_message(tracking_number, display_event, label=label, tracking_chain=chain_numbers, local_tracking_number=local_num)}"
+                msg = format_status_message(
+                    tracking_number, display_event,
+                    label=label,
+                    tracking_chain=chain_numbers,
+                    local_tracking_number=local_num,
+                    header_title="✅ <b>Subscribed to Updates</b>"
                 )
                 await update.message.reply_text(
                     msg,
-                    reply_markup=get_parcel_inline_keyboard(tracking_number)
+                    reply_markup=get_parcel_inline_keyboard(tracking_number),
+                    parse_mode="HTML"
                 )
 
         except Exception as e:
@@ -305,7 +314,7 @@ async def process_status_numbers(
                 msg = format_pending_status_message(tracking_number, label=label, tracking_chain=chain_numbers, day_number=1)
                 await update.message.reply_text(
                     msg,
-                    parse_mode="Markdown",
+                    parse_mode="HTML",
                     reply_markup=get_parcel_inline_keyboard(tracking_number)
                 )
             else:
@@ -329,7 +338,8 @@ async def process_status_numbers(
                 )
                 await update.message.reply_text(
                     msg,
-                    reply_markup=get_parcel_inline_keyboard(tracking_number)
+                    reply_markup=get_parcel_inline_keyboard(tracking_number),
+                    parse_mode="HTML"
                 )
 
         except Exception as e:

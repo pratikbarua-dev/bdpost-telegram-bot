@@ -35,11 +35,11 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await cleanup_previous_messages(update, context)
         context.user_data["state"] = "waiting_for_track"
         prompt = await update.message.reply_text(
-            "📦 *Track a Parcel:*\n\n"
-            "Please send your tracking number(s) (e.g. `UG251542831MV`).\n"
-            "You can enter multiple tracking numbers separated by spaces or commas.",
+            "📦 <b>Track a Parcel:</b>\n\n"
+            "Please send your tracking number(s) (e.g. <code>UG251542831MV</code> or <code>AP00839881455575</code>).\n"
+            "You can enter multiple numbers separated by spaces or commas.",
             reply_markup=get_cancel_keyboard(),
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
         record_prompt_message(context, prompt.message_id)
         return
@@ -49,10 +49,10 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await cleanup_previous_messages(update, context)
         context.user_data["state"] = "waiting_for_status"
         prompt = await update.message.reply_text(
-            "🔍 *Quick Status Check:*\n\n"
+            "🔍 <b>Quick Status Check:</b>\n\n"
             "Please send the tracking number(s) to check immediate status without subscribing.",
             reply_markup=get_cancel_keyboard(),
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
         record_prompt_message(context, prompt.message_id)
         return
@@ -108,15 +108,15 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             db.set_parcel_label(telegram_id, rename_tracking, custom_name)
             if custom_name:
                 await update.message.reply_text(
-                    f"🏷️ Parcel `{rename_tracking}` renamed to *{custom_name}*!",
+                    f"🏷️ Parcel <code>{rename_tracking}</code> renamed to <b>{custom_name}</b>!",
                     reply_markup=get_main_keyboard(),
-                    parse_mode="Markdown"
+                    parse_mode="HTML"
                 )
             else:
                 await update.message.reply_text(
-                    f"🏷️ Removed custom name for `{rename_tracking}`.",
+                    f"🏷️ Removed custom name for <code>{rename_tracking}</code>.",
                     reply_markup=get_main_keyboard(),
-                    parse_mode="Markdown"
+                    parse_mode="HTML"
                 )
         return
 

@@ -29,15 +29,18 @@ async def my_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     trackings = db.get_user_active_trackings(telegram_id)
 
     if not trackings:
-        msg = await update.message.reply_text(
-            "📦 You aren't tracking any parcels yet.\n\n"
-            "Tap *📦 Track Parcel* to add one!",
+        await update.message.reply_text(
+            "📦 <b>You aren't tracking any parcels yet.</b>\n\n"
+            "Tap <b>📦 Track Parcel</b> below to add one!",
             reply_markup=get_main_keyboard(),
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
         return
 
-    message_lines = ["📦 *Your Active Parcels:*\n"]
+    message_lines = [
+        "📦 <b>Your Active Parcels</b>",
+        "━━━━━━━━━━━━━━━━━━━━"
+    ]
     now = datetime.datetime.now(datetime.timezone.utc)
 
     for idx, item in enumerate(trackings, 1):
@@ -45,14 +48,14 @@ async def my_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         label = item.get("label")
         latest_event = db.get_latest_event_for_tracking(num)
 
-        title = f"*{label}* (`{num}`)" if label else f"`{num}`"
+        title = f"<b>{label}</b> (<code>{num}</code>)" if label else f"<code>{num}</code>"
 
         if latest_event:
             loc = latest_event.get("location", "")
             loc_str = f"📍 {loc}\n   " if loc else ""
             status = latest_event.get("status", "N/A")
             src = "🇧🇩 BD Post" if latest_event.get("source") == "bdpost" else "🚚 Cainiao"
-            message_lines.append(f"{idx}. {title} ({src})\n   {loc_str}📌 {status}\n")
+            message_lines.append(f"{idx}. {title} [{src}]\n   {loc_str}📌 {status}\n")
         else:
             created_at_str = item.get("created_at", "")
             day_num = 1
@@ -63,12 +66,14 @@ async def my_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 day_num = max(1, min(10, int((now - created_dt).total_seconds() / 86400) + 1))
             except Exception:
                 pass
-            message_lines.append(f"{idx}. {title}\n   ⏳ Awaiting scan (Day {day_num} of 10)\n")
+            message_lines.append(f"{idx}. {title}\n   ⏳ Awaiting first scan (Day {day_num} of 10)\n")
+
+    message_lines.append("━━━━━━━━━━━━━━━━━━━━")
 
     await update.message.reply_text(
         "\n".join(message_lines),
         reply_markup=get_my_parcels_inline_keyboard(trackings),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 
@@ -93,9 +98,9 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
         context.user_data["state"] = "waiting_for_stop"
         prompt = await update.message.reply_text(
-            "🛑 Please send the tracking number(s) to stop, or type `all` to stop all parcels:",
+            "🛑 Please send the tracking number(s) to stop, or type <code>all</code> to stop all parcels:",
             reply_markup=get_cancel_keyboard(),
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
         record_prompt_message(context, prompt.message_id)
         return
@@ -105,14 +110,16 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         stopped_count = db.stop_all_trackings(telegram_id)
         if stopped_count > 0:
             await update.message.reply_text(
-                f"🛑 Stopped tracking all {stopped_count} parcel(s).\n\n"
+                f"🛑 <b>Stopped tracking all {stopped_count} parcel(s).</b>\n\n"
                 "You will no longer receive notifications.",
-                reply_markup=get_main_keyboard()
+                reply_markup=get_main_keyboard(),
+                parse_mode="HTML"
             )
         else:
             await update.message.reply_text(
                 "⚠️ You don't have any active parcel trackings.",
-                reply_markup=get_main_keyboard()
+                reply_markup=get_main_keyboard(),
+                parse_mode="HTML"
             )
         return
 
@@ -134,20 +141,20 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     for tracking_number in valid_numbers:
         stopped = db.stop_tracking(telegram_id, tracking_number)
         if stopped:
-            stopped_list.append(tracking_number)
+            stopped_list.append(f"<code>{tracking_number}</code>")
         else:
-            not_found_list.append(tracking_number)
+            not_found_list.append(f"<code>{tracking_number}</code>")
 
     response_lines = []
     if stopped_list:
-        response_lines.append(f"🛑 Stopped tracking: `{', '.join(stopped_list)}`.")
+        response_lines.append(f"🛑 <b>Stopped tracking:</b> {', '.join(stopped_list)}")
     if not_found_list:
-        response_lines.append(f"⚠️ Not actively tracking: `{', '.join(not_found_list)}`.")
+        response_lines.append(f"⚠️ <b>Not actively tracking:</b> {', '.join(not_found_list)}")
 
     await update.message.reply_text(
         "\n".join(response_lines),
         reply_markup=get_main_keyboard(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 
@@ -165,12 +172,12 @@ async def name_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     if not context.args or len(context.args) < 2:
         prompt = await update.message.reply_text(
-            "✏️ *Set Parcel Name:*\n\n"
-            "Usage: `/name <tracking_number> <custom name>`\n"
-            "Example: `/name UG251542831MV Mechanical Keyboard`\n\n"
-            "Or tap *📋 My Parcels* and click ✏️ next to any parcel!",
+            "✏️ <b>Set Parcel Name:</b>\n\n"
+            "Usage: <code>/name &lt;tracking_number&gt; &lt;custom name&gt;</code>\n"
+            "Example: <code>/name UG251542831MV Mechanical Keyboard</code>\n\n"
+            "Or tap <b>📋 My Parcels</b> and click ✏️ next to any parcel!",
             reply_markup=get_main_keyboard(),
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
         record_prompt_message(context, prompt.message_id)
         return
@@ -190,20 +197,20 @@ async def name_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if updated:
         if custom_name:
             await update.message.reply_text(
-                f"🏷️ Parcel `{tracking_number}` renamed to *{custom_name}*.",
+                f"🏷️ Parcel <code>{tracking_number}</code> renamed to <b>{custom_name}</b>.",
                 reply_markup=get_main_keyboard(),
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
         else:
             await update.message.reply_text(
-                f"🏷️ Removed custom name for `{tracking_number}`.",
+                f"🏷️ Removed custom name for <code>{tracking_number}</code>.",
                 reply_markup=get_main_keyboard(),
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
     else:
         await update.message.reply_text(
-            f"⚠️ You are not actively tracking `{tracking_number}`.\n"
-            "Track it first using `/track`.",
+            f"⚠️ You are not actively tracking <code>{tracking_number}</code>.\n"
+            "Track it first using /track.",
             reply_markup=get_main_keyboard(),
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )

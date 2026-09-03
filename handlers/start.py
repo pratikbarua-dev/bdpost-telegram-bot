@@ -20,19 +20,21 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         db.get_or_create_user(update.effective_user.id)
 
     welcome_text = (
-        "👋 Welcome to *Bangladesh Post & AliExpress Parcel Tracker*!\n\n"
+        "👋 <b>Welcome to Bangladesh Post & AliExpress Tracker!</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
         "Track local Bangladesh Post parcels as well as AliExpress (Cainiao) shipments with automated handover upon arrival in Bangladesh.\n\n"
-        "🔘 *How to use:*\n"
-        "• Tap *📦 Track Parcel* to subscribe for background notifications\n"
-        "• Tap *🔍 Quick Status* to check tracking without subscribing\n"
-        "• Tap *📋 My Parcels* to manage, rename (✏️), or stop parcels\n"
-        "• Tap *🛑 Stop Tracking* to unsubscribe from updates"
+        "🔘 <b>Quick Guide:</b>\n"
+        "• Tap <b>📦 Track Parcel</b> to subscribe for automatic notifications\n"
+        "• Tap <b>🔍 Quick Status</b> for an instant lookup without subscribing\n"
+        "• Tap <b>📋 My Parcels</b> to view, refresh, or rename (✏️) your parcels\n"
+        "• Tap <b>🛑 Stop Tracking</b> to unsubscribe from updates\n"
+        "━━━━━━━━━━━━━━━━━━━━"
     )
 
     await update.message.reply_text(
         welcome_text,
         reply_markup=get_main_keyboard(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 
@@ -45,23 +47,23 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     context.user_data.pop("rename_tracking", None)
 
     help_text = (
-        "ℹ️ *Bangladesh Post Tracker — Help & Guide*\n\n"
-        "*Button Actions:*\n"
-        "📦 *Track Parcel* — Enter tracking number(s) to subscribe to automatic updates.\n"
-        "🔍 *Quick Status* — Instant tracking lookup without subscribing.\n"
-        "📋 *My Parcels* — View all your active parcels with quick actions (Refresh, Rename ✏️, Stop 🛑).\n"
-        "🛑 *Stop Tracking* — Unsubscribe from one or all parcels.\n\n"
-        "*Naming Parcels:*\n"
-        "You can rename any parcel using the ✏️ button in `📋 My Parcels` or with `/name <tracking_number> <custom name>`.\n\n"
-        "*Multiple tracking numbers:*\n"
-        "You can enter multiple numbers separated by spaces or commas (e.g. `UG251338889MV XX123456789BD`).\n\n"
-        "*Commands (Optional):*\n"
-        "`/track <number>` • `/status <number>` • `/name <number> <label>` • `/my` • `/stop <number>`"
+        "ℹ️ <b>Tracker Help & Commands</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "<b>Button Actions:</b>\n"
+        "• <b>📦 Track Parcel</b> — Enter tracking number(s) to subscribe\n"
+        "• <b>🔍 Quick Status</b> — Instant tracking lookup\n"
+        "• <b>📋 My Parcels</b> — Manage your active shipments\n"
+        "• <b>🛑 Stop Tracking</b> — Unsubscribe from updates\n\n"
+        "<b>Naming Parcels:</b>\n"
+        "Tap ✏️ in <b>📋 My Parcels</b> or use <code>/name &lt;tracking_number&gt; &lt;label&gt;</code>\n\n"
+        "<b>Multiple Numbers:</b>\n"
+        "You can enter multiple numbers separated by spaces or commas.\n"
+        "━━━━━━━━━━━━━━━━━━━━"
     )
 
     await update.message.reply_text(
         help_text,
         reply_markup=get_main_keyboard(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
