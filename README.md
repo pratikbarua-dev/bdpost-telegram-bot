@@ -95,9 +95,27 @@ python -m unittest discover -s tests
 5. Under **Environment Variables**, add:
    - `BOT_TOKEN`: `Your Telegram Bot Token`
    - `POLL_INTERVAL`: `1800`
-   - `DATABASE_PATH`: `bdpost.db`
    - `PYTHON_VERSION`: `3.12.0`
+   - `DATABASE_URL` *(Optional for 100% persistent storage across deploys)*: PostgreSQL connection URI (see below).
 6. Click **Deploy Web Service**.
+
+---
+
+## 💾 Preventing Data Loss on Redeploys (Persistent Database)
+
+Render web services use an ephemeral disk (the local filesystem is reset whenever a new commit is deployed).
+
+To make all your tracked parcels, chains, and custom names permanent across redeployments:
+
+1. Create a free PostgreSQL database on [Neon.tech](https://neon.tech/) or [Supabase](https://supabase.com/).
+2. Copy your connection URI (e.g. `postgresql://user:password@ep-xyz.neon.tech/neondb?sslmode=require`).
+3. In your Render Dashboard under **Environment Variables**, add:
+   ```text
+   DATABASE_URL = postgresql://user:password@ep-xyz.neon.tech/neondb?sslmode=require
+   ```
+4. The bot will automatically connect to your cloud PostgreSQL database and keep your tracking history permanently safe across all future updates and redeploys!
+
+---
 
 ### 🔄 Keep Active 24/7 (Free Tier Sleep Prevention)
 Render free web services spin down after 15 minutes of inactivity. To keep your bot active continuously:

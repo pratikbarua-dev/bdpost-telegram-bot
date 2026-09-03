@@ -3,4 +3,6 @@ httpx
 beautifulsoup4
 python-dotenv
 aiohttp
+psycopg2-binary
+
 

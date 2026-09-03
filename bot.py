@@ -49,8 +49,8 @@ async def post_init(application: Application) -> None:
 def main() -> None:
     logger.info("Initializing Bangladesh Post Telegram Bot...")
 
-    # Initialize Database
-    db = Database(config.DATABASE_PATH)
+    # Initialize Database (supports PostgreSQL if DATABASE_URL is set, otherwise SQLite)
+    db = Database(db_path=config.DATABASE_PATH, db_url=config.DATABASE_URL)
 
     # Initialize Application
     application = (
