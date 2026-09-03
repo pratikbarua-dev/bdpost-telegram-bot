@@ -122,5 +122,36 @@ class TestHandoverAndDualTracking(unittest.TestCase):
         self.assertEqual(shipment_ug["id"], shipment_id)
 
 
+    def test_pending_tracking_and_10_day_expiry(self):
+        import datetime
+
+        # Create shipment with 0 events
+        shipment_id = self.db.get_or_create_shipment("AP_NEW_PARCEL", telegram_id=3001, label="Pending Item")
+        self.assertFalse(self.db.has_events_for_shipment(shipment_id))
+
+        # Initially, it is not stale (age is 0 days)
+        stale_list = self.db.get_stale_unscanned_shipments(days=10)
+        self.assertEqual(len(stale_list), 0)
+
+        # Mock shipment created_at to 11 days ago
+        eleven_days_ago = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=11)).isoformat()
+        with self.db._get_connection() as conn:
+            conn.execute("UPDATE shipments SET created_at = ? WHERE id = ?", (eleven_days_ago, shipment_id))
+            conn.commit()
+
+        # Now it should be detected as stale
+        stale_list_after = self.db.get_stale_unscanned_shipments(days=10)
+        self.assertEqual(len(stale_list_after), 1)
+        self.assertEqual(stale_list_after[0]["id"], shipment_id)
+
+        # Expire stale shipment
+        count = self.db.expire_stale_shipment(shipment_id)
+        self.assertEqual(count, 1)
+
+        # Active shipments list should now be empty
+        active_after = self.db.get_all_active_shipments()
+        self.assertEqual(len(active_after), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

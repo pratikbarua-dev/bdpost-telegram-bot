@@ -182,3 +182,39 @@ def format_handover_notification(
 
     return "\n".join(lines)
 
+
+def format_pending_status_message(
+    tracking_number: str,
+    label: Optional[str] = None,
+    tracking_chain: Optional[List[str]] = None,
+    day_number: int = 1
+) -> str:
+    header = f"📦 *Parcel:* `{label}` (`{tracking_number}`)\n" if label else f"📦 *Tracking:* `{tracking_number}`\n"
+    lines = [
+        header,
+        f"⏳ *Status:* Awaiting first carrier scan (Day {day_number} of 10)",
+        "ℹ️ *Note:* Sellers often generate labels a few days before physical dispatch.",
+        "",
+        "🤖 *Auto-monitoring:* Active across AliExpress/Cainiao & Bangladesh Post.",
+        "You will receive a notification as soon as the first tracking update appears."
+    ]
+
+    chain_str = format_tracking_chain(tracking_chain)
+    if chain_str:
+        lines.append(f"\n{chain_str}")
+
+    return "\n".join(lines)
+
+
+def format_expiry_notification(
+    tracking_number: str,
+    label: Optional[str] = None
+) -> str:
+    item_title = f"`{label}` (`{tracking_number}`)" if label else f"`{tracking_number}`"
+    return (
+        "⚠️ *Tracking Expired (10 Days Inactive)*\n\n"
+        f"Parcel: {item_title}\n\n"
+        "No tracking updates appeared from the carrier within 10 days.\n"
+        "Automatic background monitoring for this parcel has been stopped."
+    )
+

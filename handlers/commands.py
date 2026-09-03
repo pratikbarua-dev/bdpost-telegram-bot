@@ -1,3 +1,4 @@
+import datetime
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -37,6 +38,7 @@ async def my_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     message_lines = ["📦 *Your Active Parcels:*\n"]
+    now = datetime.datetime.now(datetime.timezone.utc)
 
     for idx, item in enumerate(trackings, 1):
         num = item["tracking_number"]
@@ -52,7 +54,16 @@ async def my_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             src = "🇧🇩 BD Post" if latest_event.get("source") == "bdpost" else "🚚 Cainiao"
             message_lines.append(f"{idx}. {title} ({src})\n   {loc_str}📌 {status}\n")
         else:
-            message_lines.append(f"{idx}. {title}\n   (Pending first update)\n")
+            created_at_str = item.get("created_at", "")
+            day_num = 1
+            try:
+                created_dt = datetime.datetime.fromisoformat(created_at_str)
+                if created_dt.tzinfo is None:
+                    created_dt = created_dt.replace(tzinfo=datetime.timezone.utc)
+                day_num = max(1, min(10, int((now - created_dt).total_seconds() / 86400) + 1))
+            except Exception:
+                pass
+            message_lines.append(f"{idx}. {title}\n   ⏳ Awaiting scan (Day {day_num} of 10)\n")
 
     await update.message.reply_text(
         "\n".join(message_lines),

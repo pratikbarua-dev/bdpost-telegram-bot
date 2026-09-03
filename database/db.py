@@ -541,6 +541,62 @@ class Database:
             conn.commit()
             return count
 
+    def has_events_for_shipment(self, shipment_id: int) -> bool:
+        chain_numbers = self.get_tracking_chain_numbers(shipment_id)
+        if not chain_numbers:
+            return False
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            placeholders = ",".join("?" * len(chain_numbers))
+            cursor.execute(f"SELECT 1 FROM events WHERE tracking_number IN ({placeholders}) LIMIT 1", tuple(chain_numbers))
+            return cursor.fetchone() is not None
+
+    def get_stale_unscanned_shipments(self, days: int = 10) -> List[Dict]:
+        """
+        Returns active shipments older than `days` days that still have 0 events recorded.
+        """
+        now = datetime.datetime.now(datetime.timezone.utc)
+        cutoff = (now - datetime.timedelta(days=days)).isoformat()
+
+        active_shipments = self.get_all_active_shipments()
+        stale = []
+        for s in active_shipments:
+            created_at_str = s.get("created_at", "")
+            try:
+                # Compare ISO format or date prefix
+                created_dt = datetime.datetime.fromisoformat(created_at_str)
+                if created_dt.tzinfo is None:
+                    created_dt = created_dt.replace(tzinfo=datetime.timezone.utc)
+                if (now - created_dt).total_seconds() >= days * 86400:
+                    if not self.has_events_for_shipment(s["id"]):
+                        stale.append(s)
+            except Exception as e:
+                logger.debug("Error checking age of shipment %s: %s", s.get("primary_tracking_number"), e)
+
+        return stale
+
+    def expire_stale_shipment(self, shipment_id: int) -> int:
+        """
+        Deactivates a shipment that expired after 10 days without any carrier updates.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE shipments
+                SET cainiao_enabled = 0, bdpost_enabled = 0
+                WHERE id = ?
+            """, (shipment_id,))
+            cursor.execute("""
+                UPDATE shipment_subscribers
+                SET active = 0
+                WHERE shipment_id = ?
+            """, (shipment_id,))
+            count = cursor.rowcount
+            for num in self.get_tracking_chain_numbers(shipment_id):
+                cursor.execute("UPDATE trackings SET active = 0 WHERE tracking_number = ?", (num,))
+            conn.commit()
+            return count
+
     def deactivate_shipment_on_delivery(self, shipment_id: int) -> int:
         with self._get_connection() as conn:
             cursor = conn.cursor()

@@ -7,7 +7,7 @@ from telegram.error import TelegramError, Forbidden
 from database.db import Database
 from bdpost.client import track as track_bdpost, BangladeshPostUnavailableError
 from bdpost.parser import parse_tracking_response as parse_bdpost, is_delivered, is_bdpost_handover_event
-from bdpost.formatter import format_event_notification, format_handover_notification
+from bdpost.formatter import format_event_notification, format_handover_notification, format_expiry_notification
 from cainiao.client import track as track_cainiao, CainiaoUnavailableError, CainiaoError
 from cainiao.parser import parse_tracking_response as parse_cainiao, extract_linked_tracking_numbers
 
@@ -156,6 +156,27 @@ async def check_all_trackings(context: ContextTypes.DEFAULT_TYPE) -> None:
         for num in chain_numbers:
             db.update_last_checked(num)
         await asyncio.sleep(1.5)
+
+    # -------------------------------------------------------------
+    # 3. Check for Stale Shipments (10 days without updates)
+    # -------------------------------------------------------------
+    stale_shipments = db.get_stale_unscanned_shipments(days=10)
+    for stale in stale_shipments:
+        sid = stale["id"]
+        p_num = stale["primary_tracking_number"]
+        subs = db.get_shipment_subscribers(sid)
+
+        logger.info("Expiring shipment %d (%s) due to 10 days of inactivity", sid, p_num)
+        db.expire_stale_shipment(sid)
+
+        for sub in subs:
+            uid = sub["telegram_id"]
+            lbl = sub.get("label")
+            msg = format_expiry_notification(p_num, label=lbl)
+            try:
+                await context.bot.send_message(chat_id=uid, text=msg, parse_mode="Markdown")
+            except Exception as e:
+                logger.debug("Failed to send expiry notification to %s: %s", uid, e)
 
 
 async def _notify_subscribers(
