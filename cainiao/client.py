@@ -161,32 +161,3 @@ class CainiaoClient:
 # Module-level convenience function preserving backward compatibility
 async def track(tracking_number: str) -> Dict[str, Any]:
     return await CainiaoClient.get_instance().track(tracking_number)
-
-
-        except httpx.TimeoutException:
-            logger.warning("Cainiao timeout for %s", cleaned_num)
-            raise CainiaoUnavailableError("Cainiao tracking is temporarily unavailable")
-        except httpx.HTTPStatusError as e:
-            if allow_retry and e.response.status_code in [401, 403, 429]:
-                logger.warning("Cainiao returned status %d. Refreshing session...", e.response.status_code)
-                await self.refresh_session(cleaned_num)
-                return await self.track(cleaned_num, allow_retry=False)
-            logger.error("Cainiao HTTP error: %s", e.response.status_code)
-            raise CainiaoUnavailableError("Cainiao tracking is temporarily unavailable")
-        except httpx.RequestError as e:
-            logger.error("Cainiao connection error: %s", e)
-            raise CainiaoUnavailableError("Cainiao tracking is temporarily unavailable")
-        except CainiaoError:
-            raise
-        except Exception as e:
-            logger.error("Unexpected Cainiao error for %s: %s", cleaned_num, e)
-            raise CainiaoError(f"Cainiao error: {e}")
-
-    async def close(self) -> None:
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()
-
-
-# Module-level convenience function preserving backward compatibility
-async def track(tracking_number: str) -> Dict[str, Any]:
-    return await CainiaoClient.get_instance().track(tracking_number)
