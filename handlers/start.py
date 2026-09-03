@@ -17,7 +17,12 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     db: Database = context.bot_data.get("db")
     if db:
-        db.get_or_create_user(update.effective_user.id)
+        user = update.effective_user
+        db.get_or_create_user(
+            user.id,
+            username=user.username,
+            full_name=user.full_name
+        )
 
     welcome_text = (
         "👋 <b>Welcome to Bangladesh Post & AliExpress Tracker!</b>\n"

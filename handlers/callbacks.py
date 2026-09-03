@@ -7,6 +7,7 @@ from bdpost.parser import get_latest_event, is_bdpost_handover_event
 from bdpost.formatter import format_status_message
 from handlers.keyboards import get_main_keyboard, get_parcel_inline_keyboard, get_my_parcels_inline_keyboard
 from handlers.tracking import fetch_tracking_sources
+from handlers.admin import admin_callback_router
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,11 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     if not query or not update.effective_user:
         return
+
+    # Check if this is an admin callback
+    if query.data and query.data.startswith("admin_"):
+        if await admin_callback_router(update, context):
+            return
 
     await query.answer()
     data = query.data

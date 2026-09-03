@@ -3,7 +3,7 @@ import re
 import sqlite3
 import datetime
 import logging
-from typing import Optional, List, Dict, Set, Tuple
+from typing import Optional, List, Dict, Set, Tuple, Any
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +67,9 @@ class Database:
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     telegram_id BIGINT UNIQUE NOT NULL,
+                    username TEXT,
+                    full_name TEXT,
+                    is_banned INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL
                 );
             """))
@@ -165,18 +168,28 @@ class Database:
             cursor.execute(self._prep_sql("CREATE INDEX IF NOT EXISTS idx_subs_shipment ON shipment_subscribers(shipment_id, active);"))
             cursor.execute(self._prep_sql("CREATE INDEX IF NOT EXISTS idx_events_tracking ON events(tracking_number);"))
 
+            # Automatic Schema Migrations for Users table
+            for col, col_def in [("username", "TEXT"), ("full_name", "TEXT"), ("is_banned", "INTEGER DEFAULT 0")]:
+                try:
+                    cursor.execute(self._prep_sql(f"ALTER TABLE users ADD COLUMN {col} {col_def};"))
+                except Exception:
+                    pass
+
             conn.commit()
             backend_type = f"PostgreSQL ({self.db_url.split('@')[-1]})" if self.is_postgres else f"SQLite ({self.db_path})"
             logger.info("Database initialized successfully using %s", backend_type)
 
-    def get_or_create_user(self, telegram_id: int) -> None:
+    def get_or_create_user(self, telegram_id: int, username: Optional[str] = None, full_name: Optional[str] = None) -> None:
         now = datetime.datetime.now(datetime.timezone.utc).isoformat()
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(self._prep_sql("""
-                INSERT OR IGNORE INTO users (telegram_id, created_at)
-                VALUES (?, ?)
-            """), (telegram_id, now))
+                INSERT INTO users (telegram_id, username, full_name, is_banned, created_at)
+                VALUES (?, ?, ?, 0, ?)
+                ON CONFLICT(telegram_id) DO UPDATE SET
+                    username = COALESCE(excluded.username, users.username),
+                    full_name = COALESCE(excluded.full_name, users.full_name)
+            """), (telegram_id, username, full_name, now))
             conn.commit()
 
     # -----------------------------------------------------------------
@@ -823,3 +836,188 @@ class Database:
             if row:
                 return dict(row)
             return None
+
+    # -----------------------------------------------------------------
+    # Admin Control & Oversight Methods
+    # -----------------------------------------------------------------
+    def get_system_stats(self) -> Dict[str, Any]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(self._prep_sql("SELECT COUNT(*) as total_users FROM users;"))
+            total_users = cursor.fetchone()["total_users"]
+
+            cursor.execute(self._prep_sql("SELECT COUNT(*) as total_shipments FROM shipments;"))
+            total_shipments = cursor.fetchone()["total_shipments"]
+
+            cursor.execute(self._prep_sql("""
+                SELECT COUNT(DISTINCT s.id) as active_shipments
+                FROM shipments s
+                JOIN shipment_subscribers sub ON s.id = sub.shipment_id
+                WHERE sub.active = 1 AND s.is_delivered = 0;
+            """))
+            active_shipments = cursor.fetchone()["active_shipments"]
+
+            cursor.execute(self._prep_sql("SELECT COUNT(*) as delivered FROM shipments WHERE is_delivered = 1;"))
+            delivered = cursor.fetchone()["delivered"]
+
+            cursor.execute(self._prep_sql("SELECT COUNT(*) as handover_count FROM shipments WHERE handover_detected = 1;"))
+            handover_count = cursor.fetchone()["handover_count"]
+
+            cursor.execute(self._prep_sql("SELECT COUNT(*) as banned_users FROM users WHERE is_banned = 1;"))
+            banned_users = cursor.fetchone()["banned_users"]
+
+            return {
+                "total_users": total_users,
+                "total_shipments": total_shipments,
+                "active_shipments": active_shipments,
+                "delivered_shipments": delivered,
+                "handover_shipments": handover_count,
+                "banned_users": banned_users
+            }
+
+    def get_all_users_admin(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(self._prep_sql("""
+                SELECT u.telegram_id, u.username, u.full_name, u.is_banned, u.created_at,
+                       COUNT(DISTINCT CASE WHEN sub.active = 1 THEN sub.shipment_id END) as active_parcels,
+                       COUNT(DISTINCT sub.shipment_id) as total_parcels
+                FROM users u
+                LEFT JOIN shipment_subscribers sub ON u.telegram_id = sub.telegram_id
+                GROUP BY u.telegram_id, u.username, u.full_name, u.is_banned, u.created_at
+                ORDER BY u.id DESC
+                LIMIT ? OFFSET ?;
+            """), (limit, offset))
+            return [dict(r) for r in cursor.fetchall()]
+
+    def get_user_admin_profile(self, identifier: str) -> Optional[Dict[str, Any]]:
+        cleaned = identifier.strip().lstrip("@")
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            if cleaned.isdigit():
+                cursor.execute(self._prep_sql("SELECT * FROM users WHERE telegram_id = ? LIMIT 1;"), (int(cleaned),))
+            else:
+                cursor.execute(self._prep_sql("SELECT * FROM users WHERE LOWER(username) = LOWER(?) LIMIT 1;"), (cleaned,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            user_data = dict(row)
+            user_data["parcels"] = self.get_user_parcels_admin(user_data["telegram_id"])
+            return user_data
+
+    def get_user_parcels_admin(self, telegram_id: int) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(self._prep_sql("""
+                SELECT s.*, sub.label, sub.active as is_subscribed, sub.created_at as subscribed_at
+                FROM shipments s
+                JOIN shipment_subscribers sub ON s.id = sub.shipment_id
+                WHERE sub.telegram_id = ?
+                ORDER BY sub.active DESC, s.updated_at DESC;
+            """), (telegram_id,))
+            rows = cursor.fetchall()
+            parcels = []
+            for r in rows:
+                p = dict(r)
+                p["latest_event"] = self.get_latest_event_for_tracking(p["primary_tracking_number"])
+                cursor.execute(self._prep_sql("""
+                    SELECT tracking_number, source, type, discovered_from
+                    FROM shipment_tracking_numbers
+                    WHERE shipment_id = ?
+                    ORDER BY id ASC;
+                """), (p["id"],))
+                p["tracking_chain"] = [dict(tr) for tr in cursor.fetchall()]
+                parcels.append(p)
+            return parcels
+
+    def get_all_shipments_admin(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(self._prep_sql("""
+                SELECT s.*, COUNT(sub.telegram_id) as subscribers_count
+                FROM shipments s
+                LEFT JOIN shipment_subscribers sub ON s.id = sub.shipment_id AND sub.active = 1
+                GROUP BY s.id
+                ORDER BY s.updated_at DESC
+                LIMIT ? OFFSET ?;
+            """), (limit, offset))
+            rows = cursor.fetchall()
+            shipments = []
+            for r in rows:
+                s = dict(r)
+                cursor.execute(self._prep_sql("""
+                    SELECT tracking_number, source, type
+                    FROM shipment_tracking_numbers
+                    WHERE shipment_id = ?
+                    ORDER BY id ASC;
+                """), (s["id"],))
+                s["tracking_chain"] = [dict(tr) for tr in cursor.fetchall()]
+                s["latest_event"] = self.get_latest_event_for_tracking(s["primary_tracking_number"])
+                shipments.append(s)
+            return shipments
+
+    def set_user_ban_status(self, telegram_id: int, is_banned: bool) -> bool:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(self._prep_sql("UPDATE users SET is_banned = ? WHERE telegram_id = ?;"), (1 if is_banned else 0, telegram_id))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def is_user_banned(self, telegram_id: int) -> bool:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(self._prep_sql("SELECT is_banned FROM users WHERE telegram_id = ? LIMIT 1;"), (telegram_id,))
+            row = cursor.fetchone()
+            return bool(row and row["is_banned"] == 1)
+
+    def admin_delete_shipment(self, shipment_id: int) -> bool:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            chain = self.get_tracking_chain_numbers(shipment_id)
+            if chain:
+                placeholders = ",".join("?" * len(chain))
+                cursor.execute(self._prep_sql(f"DELETE FROM events WHERE tracking_number IN ({placeholders});"), tuple(chain))
+                cursor.execute(self._prep_sql(f"DELETE FROM trackings WHERE tracking_number IN ({placeholders});"), tuple(chain))
+            cursor.execute(self._prep_sql("DELETE FROM shipment_subscribers WHERE shipment_id = ?;"), (shipment_id,))
+            cursor.execute(self._prep_sql("DELETE FROM shipment_tracking_numbers WHERE shipment_id = ?;"), (shipment_id,))
+            cursor.execute(self._prep_sql("DELETE FROM shipments WHERE id = ?;"), (shipment_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def admin_force_shipment_state(
+        self,
+        shipment_id: int,
+        cainiao_enabled: Optional[int] = None,
+        bdpost_enabled: Optional[int] = None,
+        handover_detected: Optional[int] = None,
+        is_delivered: Optional[int] = None
+    ) -> bool:
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            updates = ["updated_at = ?"]
+            params = [now]
+            if cainiao_enabled is not None:
+                updates.append("cainiao_enabled = ?")
+                params.append(cainiao_enabled)
+            if bdpost_enabled is not None:
+                updates.append("bdpost_enabled = ?")
+                params.append(bdpost_enabled)
+            if handover_detected is not None:
+                updates.append("handover_detected = ?")
+                params.append(handover_detected)
+            if is_delivered is not None:
+                updates.append("is_delivered = ?")
+                params.append(is_delivered)
+                if is_delivered == 1:
+                    cursor.execute(self._prep_sql("UPDATE shipment_subscribers SET active = 0 WHERE shipment_id = ?;"), (shipment_id,))
+            params.append(shipment_id)
+            cursor.execute(self._prep_sql(f"UPDATE shipments SET {', '.join(updates)} WHERE id = ?;"), tuple(params))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def get_all_registered_telegram_ids(self) -> List[int]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(self._prep_sql("SELECT telegram_id FROM users WHERE is_banned = 0;"))
+            return [r["telegram_id"] for r in cursor.fetchall()]

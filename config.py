@@ -10,13 +10,8 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# Optional admin Telegram user/chat ID for receiving feedback directly in Telegram
-ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
-if ADMIN_CHAT_ID:
-    try:
-        ADMIN_CHAT_ID = int(ADMIN_CHAT_ID)
-    except ValueError:
-        pass
+# Admin Telegram user/chat ID for full bot management and notifications
+ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "6856606568"))
 
 # Optional Cloudflare Worker proxy to route international requests through Cloudflare's edge network
 CF_PROXY_URL = os.getenv("CF_PROXY_URL")

@@ -15,13 +15,24 @@ logger = logging.getLogger(__name__)
 
 
 async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not update.message.text:
+    if not update.message or not update.message.text or not update.effective_user:
         return
 
     text = update.message.text.strip()
     state = context.user_data.get("state")
     telegram_id = update.effective_user.id
     db: Database = context.bot_data["db"]
+
+    # Check for banned status
+    if db.is_user_banned(telegram_id):
+        return
+
+    # Update user metadata
+    db.get_or_create_user(
+        telegram_id,
+        username=update.effective_user.username,
+        full_name=update.effective_user.full_name
+    )
 
     # Handle Cancel & Home
     if text in ["❌ Cancel", "cancel", "/cancel", "🏠 Home", "🏠 Back to Home", "home", "/home"]:
