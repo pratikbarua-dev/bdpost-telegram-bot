@@ -115,7 +115,12 @@ class CainiaoClient:
                 headers=headers
             )
             response.raise_for_status()
-            data = response.json()
+            
+            try:
+                data = response.json()
+            except Exception:
+                logger.warning("Cainiao returned non-JSON / interstitial HTML for %s", cleaned_num)
+                raise CainiaoUnavailableError("Cainiao returned non-JSON challenge")
 
             if not isinstance(data, dict):
                 raise CainiaoError("Invalid JSON response received from Cainiao")
