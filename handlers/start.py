@@ -28,6 +28,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "• Tap <b>🔍 Quick Status</b> for an instant lookup without subscribing\n"
         "• Tap <b>📋 My Parcels</b> to view, refresh, or rename (✏️) your parcels\n"
         "• Tap <b>🛑 Stop Tracking</b> to unsubscribe from updates\n"
+        "• Tap <b>💬 Feedback</b> to share ideas, report bugs, or request features\n"
         "━━━━━━━━━━━━━━━━━━━━"
     )
 
@@ -53,9 +54,12 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "• <b>📦 Track Parcel</b> — Enter tracking number(s) to subscribe\n"
         "• <b>🔍 Quick Status</b> — Instant tracking lookup\n"
         "• <b>📋 My Parcels</b> — Manage your active shipments\n"
-        "• <b>🛑 Stop Tracking</b> — Unsubscribe from updates\n\n"
+        "• <b>🛑 Stop Tracking</b> — Unsubscribe from updates\n"
+        "• <b>💬 Feedback</b> — Send suggestions or report issues\n\n"
         "<b>Naming Parcels:</b>\n"
         "Tap ✏️ in <b>📋 My Parcels</b> or use <code>/name &lt;tracking_number&gt; &lt;label&gt;</code>\n\n"
+        "<b>Commands:</b>\n"
+        "• <code>/feedback &lt;message&gt;</code> — Send feedback or report bugs\n\n"
         "<b>Multiple Numbers:</b>\n"
         "You can enter multiple numbers separated by spaces or commas.\n"
         "━━━━━━━━━━━━━━━━━━━━"

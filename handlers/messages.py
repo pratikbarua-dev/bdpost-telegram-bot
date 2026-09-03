@@ -5,6 +5,7 @@ from telegram.ext import ContextTypes
 from handlers.start import start_handler, help_handler
 from handlers.commands import my_command, stop_command
 from handlers.tracking import process_track_numbers, process_status_numbers
+from handlers.feedback import feedback_command, handle_feedback_message
 from handlers.keyboards import get_main_keyboard, get_cancel_keyboard
 from handlers.cleanup import cleanup_previous_messages, record_prompt_message
 from bdpost.validator import extract_tracking_numbers
@@ -71,6 +72,12 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await stop_command(update, context)
         return
 
+    # Button: 💬 Feedback
+    if text == "💬 Feedback":
+        await cleanup_previous_messages(update, context)
+        await feedback_command(update, context)
+        return
+
     # Button: ℹ️ Help
     if text == "ℹ️ Help":
         await cleanup_previous_messages(update, context)
@@ -79,6 +86,10 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     # Handle State-driven input
+    if state == "waiting_for_feedback":
+        await handle_feedback_message(update, context, text)
+        return
+
     if state == "waiting_for_track":
         await cleanup_previous_messages(update, context)
         context.user_data.pop("state", None)
