@@ -6,8 +6,11 @@ import json
 import logging
 import random
 import time
+import urllib.parse
 from typing import Dict, Any, Optional, List
 import httpx
+
+import config
 
 logger = logging.getLogger(__name__)
 
@@ -205,14 +208,24 @@ class Track17Client:
             "last-event-id": last_event_id,
             "cookie": f"country=BD; _yq_bid={yq_bid}; Last-Event-ID={last_event_id}"
         }
+        if config.CF_PROXY_SECRET:
+            headers["x-proxy-secret"] = config.CF_PROXY_SECRET
 
         try:
             logger.info("Querying 17TRACK for %s", cleaned_num)
-            response = await client.post(
-                TRACK17_RESTAPI_URL,
-                json=payload,
-                headers=headers
-            )
+            if config.CF_PROXY_URL:
+                req_url = f"{config.CF_PROXY_URL.rstrip('/')}/?url={urllib.parse.quote(TRACK17_RESTAPI_URL, safe='')}"
+                response = await client.post(
+                    req_url,
+                    json=payload,
+                    headers=headers
+                )
+            else:
+                response = await client.post(
+                    TRACK17_RESTAPI_URL,
+                    json=payload,
+                    headers=headers
+                )
             response.raise_for_status()
             data = response.json()
 

@@ -18,6 +18,10 @@ if ADMIN_CHAT_ID:
     except ValueError:
         pass
 
+# Optional Cloudflare Worker proxy to route international requests through Cloudflare's edge network
+CF_PROXY_URL = os.getenv("CF_PROXY_URL")
+CF_PROXY_SECRET = os.getenv("CF_PROXY_SECRET")
+
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN environment variable is required")
 

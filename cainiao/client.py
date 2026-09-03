@@ -1,27 +1,10 @@
 import asyncio
+import urllib.parse
 import httpx
 import logging
 from typing import Dict, Any, Optional
 
-logger = logging.getLogger(__name__)
-
-CAINIAO_BASE_URL = "https://global.cainiao.com"
-CAINIAO_DETAIL_JSON = "https://global.cainiao.com/global/detail.json"
-DEFAULT_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
-
-
-class CainiaoError(Exception):
-    pass
-
-
-class CainiaoUnavailableError(CainiaoError):
-    pass
-
-
-import asyncio
-import httpx
-import logging
-from typing import Dict, Any, Optional
+import config
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +26,7 @@ class CainiaoUnavailableError(CainiaoError):
 class CainiaoClient:
     """
     Persistent Cainiao HTTP client that queries the Cainiao Global tracking endpoint
-    using standard browser headers with automatic retry on temporary failures.
+    using standard browser headers, optionally routing through a Cloudflare Worker proxy.
     """
     _instance: Optional["CainiaoClient"] = None
 
@@ -72,6 +55,8 @@ class CainiaoClient:
         }
         if referer:
             headers["referer"] = referer
+        if config.CF_PROXY_SECRET:
+            headers["x-proxy-secret"] = config.CF_PROXY_SECRET
         return headers
 
     async def _get_or_create_client(self) -> httpx.AsyncClient:
@@ -94,7 +79,7 @@ class CainiaoClient:
 
     async def track(self, tracking_number: str, allow_retry: bool = True) -> Dict[str, Any]:
         """
-        Sends GET request to Cainiao global tracking endpoint.
+        Sends GET request to Cainiao global tracking endpoint (optionally via CF Worker proxy).
         """
         cleaned_num = tracking_number.strip().upper()
         referer = f"{CAINIAO_BASE_URL}/newDetail.htm?mailNoList={cleaned_num}&otherMailNoList="
@@ -109,13 +94,19 @@ class CainiaoClient:
             client = await self._get_or_create_client()
 
         try:
-            response = await client.get(
-                CAINIAO_DETAIL_JSON,
-                params=params,
-                headers=headers
-            )
+            if config.CF_PROXY_URL:
+                target_url = f"{CAINIAO_DETAIL_JSON}?{urllib.parse.urlencode(params)}"
+                req_url = f"{config.CF_PROXY_URL.rstrip('/')}/?url={urllib.parse.quote(target_url, safe='')}"
+                response = await client.get(req_url, headers=headers)
+            else:
+                response = await client.get(
+                    CAINIAO_DETAIL_JSON,
+                    params=params,
+                    headers=headers
+                )
+
             response.raise_for_status()
-            
+
             try:
                 data = response.json()
             except Exception:

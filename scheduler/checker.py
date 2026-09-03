@@ -197,7 +197,7 @@ async def check_all_trackings(context: ContextTypes.DEFAULT_TYPE) -> None:
 
         for num in chain_numbers:
             db.update_last_checked(num)
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(3.5)
 
     # -------------------------------------------------------------
     # 3. Check for Stale Shipments (10 days without updates)
