@@ -35,12 +35,26 @@ class SupabaseDatabase:
     # -------------------------------------------------------------
     # Users
     # -------------------------------------------------------------
-    def get_or_create_user(self, telegram_id: int) -> None:
+    def get_or_create_user(
+        self,
+        telegram_id: int,
+        username: Optional[str] = None,
+        full_name: Optional[str] = None
+    ) -> None:
         now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        payload = {"telegram_id": telegram_id, "created_at": now}
+        if username:
+            payload["username"] = username
+        if full_name:
+            payload["full_name"] = full_name
         try:
-            self._req("POST", "/users", json={"telegram_id": telegram_id, "created_at": now}, headers={**self.headers, "Prefer": "resolution=ignore-duplicates"})
-        except Exception as e:
-            logger.debug("get_or_create_user notice: %s", e)
+            self._req("POST", "/users", json=payload, headers={**self.headers, "Prefer": "resolution=merge-duplicates"})
+        except Exception:
+            try:
+                # Fallback without extra columns if not migrated
+                self._req("POST", "/users", json={"telegram_id": telegram_id, "created_at": now}, headers={**self.headers, "Prefer": "resolution=ignore-duplicates"})
+            except Exception as e:
+                logger.debug("get_or_create_user notice: %s", e)
 
     # -------------------------------------------------------------
     # Shipments & Chains
@@ -493,3 +507,179 @@ class SupabaseDatabase:
         if rows:
             return rows[0]
         return None
+
+    # -------------------------------------------------------------
+    # Admin Control & Oversight Methods
+    # -------------------------------------------------------------
+    def get_system_stats(self) -> Dict:
+        try:
+            users_res = self._req("GET", "/users?select=count", headers={**self.headers, "Prefer": "count=exact"}).headers.get("content-range", "")
+            total_users = int(users_res.split("/")[-1]) if "/" in users_res else len(self._req("GET", "/users?select=telegram_id").json())
+        except Exception:
+            total_users = 0
+
+        try:
+            shipments_res = self._req("GET", "/shipments?select=count", headers={**self.headers, "Prefer": "count=exact"}).headers.get("content-range", "")
+            total_shipments = int(shipments_res.split("/")[-1]) if "/" in shipments_res else len(self._req("GET", "/shipments?select=id").json())
+        except Exception:
+            total_shipments = 0
+
+        try:
+            active_shipments = len(self.get_all_active_shipments())
+        except Exception:
+            active_shipments = 0
+
+        try:
+            deliv_res = self._req("GET", "/shipments?is_delivered=eq.1&select=count", headers={**self.headers, "Prefer": "count=exact"}).headers.get("content-range", "")
+            delivered = int(deliv_res.split("/")[-1]) if "/" in deliv_res else len(self._req("GET", "/shipments?is_delivered=eq.1&select=id").json())
+        except Exception:
+            delivered = 0
+
+        try:
+            ho_res = self._req("GET", "/shipments?handover_detected=eq.1&select=count", headers={**self.headers, "Prefer": "count=exact"}).headers.get("content-range", "")
+            handover_count = int(ho_res.split("/")[-1]) if "/" in ho_res else len(self._req("GET", "/shipments?handover_detected=eq.1&select=id").json())
+        except Exception:
+            handover_count = 0
+
+        try:
+            ban_res = self._req("GET", "/users?is_banned=eq.1&select=count", headers={**self.headers, "Prefer": "count=exact"}).headers.get("content-range", "")
+            banned_users = int(ban_res.split("/")[-1]) if "/" in ban_res else 0
+        except Exception:
+            banned_users = 0
+
+        return {
+            "total_users": total_users,
+            "total_shipments": total_shipments,
+            "active_shipments": active_shipments,
+            "delivered_shipments": delivered,
+            "handover_shipments": handover_count,
+            "banned_users": banned_users
+        }
+
+    def get_all_users_admin(self, limit: int = 50, offset: int = 0) -> List[Dict]:
+        try:
+            users = self._req("GET", f"/users?select=*&order=id.desc&limit={limit}&offset={offset}").json()
+            for u in users:
+                uid = u["telegram_id"]
+                sub_res = self._req("GET", f"/shipment_subscribers?telegram_id=eq.{uid}&select=active").json()
+                u["total_parcels"] = len(sub_res)
+                u["active_parcels"] = len([s for s in sub_res if s.get("active") == 1])
+            return users
+        except Exception as e:
+            logger.error("get_all_users_admin error: %s", e)
+            return []
+
+    def get_user_admin_profile(self, identifier: str) -> Optional[Dict]:
+        cleaned = identifier.strip().lstrip("@")
+        try:
+            if cleaned.isdigit():
+                res = self._req("GET", f"/users?telegram_id=eq.{int(cleaned)}&limit=1").json()
+            else:
+                res = self._req("GET", f"/users?username=ilike.{cleaned}&limit=1").json()
+            if not res:
+                return None
+            user_data = res[0]
+            user_data["parcels"] = self.get_user_parcels_admin(user_data["telegram_id"])
+            return user_data
+        except Exception as e:
+            logger.error("get_user_admin_profile error: %s", e)
+            return None
+
+    def get_user_parcels_admin(self, telegram_id: int) -> List[Dict]:
+        try:
+            subs = self._req("GET", f"/shipment_subscribers?telegram_id=eq.{telegram_id}&order=active.desc").json()
+            parcels = []
+            for sub in subs:
+                sid = sub["shipment_id"]
+                s_res = self._req("GET", f"/shipments?id=eq.{sid}&limit=1").json()
+                if s_res:
+                    s = s_res[0]
+                    s["label"] = sub.get("label")
+                    s["is_subscribed"] = sub.get("active")
+                    s["subscribed_at"] = sub.get("created_at")
+                    s["latest_event"] = self.get_latest_event_for_tracking(s["primary_tracking_number"])
+                    chain = self._req("GET", f"/shipment_tracking_numbers?shipment_id=eq.{sid}&select=*&order=id.asc").json()
+                    s["tracking_chain"] = chain
+                    parcels.append(s)
+            return parcels
+        except Exception as e:
+            logger.error("get_user_parcels_admin error: %s", e)
+            return []
+
+    def get_all_shipments_admin(self, limit: int = 50, offset: int = 0) -> List[Dict]:
+        try:
+            shipments = self._req("GET", f"/shipments?select=*&order=updated_at.desc&limit={limit}&offset={offset}").json()
+            for s in shipments:
+                sid = s["id"]
+                subs = self._req("GET", f"/shipment_subscribers?shipment_id=eq.{sid}&active=eq.1&select=telegram_id").json()
+                s["subscribers_count"] = len(subs)
+                chain = self._req("GET", f"/shipment_tracking_numbers?shipment_id=eq.{sid}&select=*&order=id.asc").json()
+                s["tracking_chain"] = chain
+                s["latest_event"] = self.get_latest_event_for_tracking(s["primary_tracking_number"])
+            return shipments
+        except Exception as e:
+            logger.error("get_all_shipments_admin error: %s", e)
+            return []
+
+    def set_user_ban_status(self, telegram_id: int, is_banned: bool) -> bool:
+        try:
+            res = self._req("PATCH", f"/users?telegram_id=eq.{telegram_id}", json={"is_banned": 1 if is_banned else 0})
+            return len(res.json()) > 0
+        except Exception:
+            return False
+
+    def is_user_banned(self, telegram_id: int) -> bool:
+        try:
+            res = self._req("GET", f"/users?telegram_id=eq.{telegram_id}&select=is_banned&limit=1").json()
+            return bool(res and res[0].get("is_banned") == 1)
+        except Exception:
+            return False
+
+    def admin_delete_shipment(self, shipment_id: int) -> bool:
+        try:
+            chain = self.get_tracking_chain_numbers(shipment_id)
+            if chain:
+                in_filter = f"({','.join(chain)})"
+                self._req("DELETE", f"/events?tracking_number=in.{in_filter}")
+            self._req("DELETE", f"/shipment_subscribers?shipment_id=eq.{shipment_id}")
+            self._req("DELETE", f"/shipment_tracking_numbers?shipment_id=eq.{shipment_id}")
+            res = self._req("DELETE", f"/shipments?id=eq.{shipment_id}")
+            return len(res.json()) > 0
+        except Exception as e:
+            logger.error("admin_delete_shipment error: %s", e)
+            return False
+
+    def admin_force_shipment_state(
+        self,
+        shipment_id: int,
+        cainiao_enabled: Optional[int] = None,
+        bdpost_enabled: Optional[int] = None,
+        handover_detected: Optional[int] = None,
+        is_delivered: Optional[int] = None
+    ) -> bool:
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        payload = {"updated_at": now}
+        if cainiao_enabled is not None:
+            payload["cainiao_enabled"] = cainiao_enabled
+        if bdpost_enabled is not None:
+            payload["bdpost_enabled"] = bdpost_enabled
+        if handover_detected is not None:
+            payload["handover_detected"] = handover_detected
+        if is_delivered is not None:
+            payload["is_delivered"] = is_delivered
+
+        try:
+            res = self._req("PATCH", f"/shipments?id=eq.{shipment_id}", json=payload)
+            if is_delivered == 1:
+                self._req("PATCH", f"/shipment_subscribers?shipment_id=eq.{shipment_id}", json={"active": 0})
+            return len(res.json()) > 0
+        except Exception as e:
+            logger.error("admin_force_shipment_state error: %s", e)
+            return False
+
+    def get_all_registered_telegram_ids(self) -> List[int]:
+        try:
+            res = self._req("GET", "/users?select=telegram_id").json()
+            return [r["telegram_id"] for r in res]
+        except Exception:
+            return []

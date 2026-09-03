@@ -7,8 +7,16 @@
 CREATE TABLE IF NOT EXISTS users (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     telegram_id BIGINT UNIQUE NOT NULL,
+    username TEXT,
+    full_name TEXT,
+    is_banned INT NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
+
+-- Optional column additions if updating existing tables
+ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_banned INT DEFAULT 0;
 
 -- 2. Shipments Table (Core Physical Shipment Entity)
 CREATE TABLE IF NOT EXISTS shipments (
