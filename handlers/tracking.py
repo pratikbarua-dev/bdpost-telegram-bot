@@ -10,7 +10,9 @@ from bdpost.parser import parse_tracking_response as parse_bdpost, get_latest_ev
 from bdpost.validator import extract_tracking_numbers
 from bdpost.formatter import format_status_message, format_pending_status_message
 from cainiao.client import track as track_cainiao, CainiaoUnavailableError, CainiaoError
-from cainiao.parser import parse_tracking_response as parse_cainiao, extract_linked_tracking_numbers
+from cainiao.parser import parse_tracking_response as parse_cainiao, extract_linked_tracking_numbers as extract_linked_cainiao
+from track17.client import track as track_17track, Track17UnavailableError, Track17Error
+from track17.parser import parse_tracking_response as parse_17track, extract_linked_tracking_numbers as extract_linked_17track
 from handlers.keyboards import get_main_keyboard, get_parcel_inline_keyboard
 
 logger = logging.getLogger(__name__)
@@ -56,18 +58,21 @@ async def discover_and_fetch_chain(
         hops += 1
         current_num = chain_queue.pop(0)
 
-        # 1. Fetch Cainiao
+        # 1. Fetch Cainiao (Primary International)
         if current_num not in checked_cainiao:
             checked_cainiao.add(current_num)
+            cainiao_success = False
             try:
                 cainiao_data = await track_cainiao(current_num)
                 events = parse_cainiao(cainiao_data)
-                for e in events:
-                    e["tracking_number"] = current_num
-                all_cainiao_events.extend(events)
+                if events:
+                    for e in events:
+                        e["tracking_number"] = current_num
+                    all_cainiao_events.extend(events)
+                    cainiao_success = True
 
-                # Discover linked numbers
-                discovered_links = extract_linked_tracking_numbers(cainiao_data, current_num)
+                # Discover linked numbers from Cainiao
+                discovered_links = extract_linked_cainiao(cainiao_data, current_num)
                 for link in discovered_links:
                     linked_num = link["tracking_number"]
                     if linked_num not in all_chain_numbers:
@@ -84,6 +89,37 @@ async def discover_and_fetch_chain(
                             )
             except Exception as e:
                 logger.debug("Cainiao fetch for %s in chain: %s", current_num, e)
+
+            # 1b. Fallback to 17TRACK if Cainiao returned no events or failed
+            if not cainiao_success:
+                try:
+                    logger.info("Querying 17TRACK fallback for %s in chain", current_num)
+                    t17_data = await track_17track(current_num)
+                    t17_events = parse_17track(t17_data, query_number=current_num)
+                    if t17_events:
+                        for te in t17_events:
+                            te["tracking_number"] = current_num
+                        all_cainiao_events.extend(t17_events)
+                        logger.info("17TRACK fallback returned %d event(s) for %s", len(t17_events), current_num)
+
+                    # Discover linked numbers from 17TRACK
+                    discovered_17 = extract_linked_17track(t17_data, current_num)
+                    for link in discovered_17:
+                        linked_num = link["tracking_number"]
+                        if linked_num not in all_chain_numbers:
+                            all_chain_numbers.append(linked_num)
+                            chain_queue.append(linked_num)
+                            logger.info("17TRACK discovered linked tracking number: %s -> %s (%s)", current_num, linked_num, link.get("type"))
+                            if shipment_id is not None:
+                                db.link_tracking_number(
+                                    shipment_id=shipment_id,
+                                    tracking_number=linked_num,
+                                    source=link.get("source", "17track"),
+                                    num_type=link.get("type", "local"),
+                                    discovered_from=current_num
+                                )
+                except Exception as e:
+                    logger.debug("17TRACK fallback for %s in chain: %s", current_num, e)
 
         # 2. Fetch Bangladesh Post
         if current_num not in checked_bdpost:

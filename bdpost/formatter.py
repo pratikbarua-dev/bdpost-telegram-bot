@@ -63,7 +63,11 @@ def format_status_message(
     lines.append(f"🔢 <b>Tracking:</b> <code>{_esc(tracking_number)}</code>")
 
     if source == "cainiao":
-        lines.append("🚚 <b>Carrier:</b> AliExpress / Cainiao")
+        carrier_name = event.get("carrier_name") or "AliExpress / Cainiao"
+        lines.append(f"🚚 <b>Carrier:</b> {_esc(carrier_name)}")
+    elif source == "17track":
+        carrier_name = event.get("carrier_name") or "AliExpress (17TRACK)"
+        lines.append(f"🚚 <b>Carrier:</b> {_esc(carrier_name)}")
     else:
         lines.append("🇧🇩 <b>Carrier:</b> Bangladesh Post")
 
@@ -138,7 +142,11 @@ def format_event_notification(
     lines.append(f"🔢 <b>Tracking:</b> <code>{_esc(tracking_number)}</code>")
 
     if source == "cainiao":
-        lines.append("🚚 <b>Source:</b> AliExpress / Cainiao")
+        carrier_name = event.get("carrier_name") or "AliExpress / Cainiao"
+        lines.append(f"🚚 <b>Source:</b> {_esc(carrier_name)}")
+    elif source == "17track":
+        carrier_name = event.get("carrier_name") or "AliExpress (17TRACK)"
+        lines.append(f"🚚 <b>Source:</b> {_esc(carrier_name)}")
     else:
         lines.append("🇧🇩 <b>Source:</b> Bangladesh Post")
 

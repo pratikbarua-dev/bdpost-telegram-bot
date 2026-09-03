@@ -735,33 +735,70 @@ class Database:
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
+
+            # Retrieve existing event signatures to deduplicate cross-provider events (e.g. Cainiao vs 17TRACK)
+            shipment = self.get_shipment_by_tracking_number(tracking_number)
+            all_numbers = [tracking_number]
+            if shipment:
+                all_numbers.extend([item["tracking_number"] for item in shipment.get("tracking_chain", [])])
+
+            placeholders = ",".join("?" * len(all_numbers))
+            cursor.execute(self._prep_sql(f"""
+                SELECT event_date, status, description
+                FROM events
+                WHERE tracking_number IN ({placeholders})
+            """), tuple(all_numbers))
+            existing_rows = cursor.fetchall()
+
+            existing_signatures = set()
+            for r in existing_rows:
+                d = str(r["event_date"] or "").strip()[:16]
+                st = str(r["status"] or "").strip().lower()
+                desc = str(r["description"] or "").strip().lower()
+                if d and st:
+                    existing_signatures.add((d, st))
+                if d and desc:
+                    existing_signatures.add((d, desc))
+
             for event in events:
                 event_hash = event["event_hash"]
-                if event_hash not in known_hashes:
-                    cursor.execute(self._prep_sql("""
-                        INSERT OR IGNORE INTO events (
-                            tracking_number, event_date, origin_country,
-                            destination_country, location, status, description,
-                            source, action_code, timezone, event_hash, created_at
-                        )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """), (
-                        event.get("tracking_number", tracking_number),
-                        event.get("event_date", ""),
-                        event.get("origin_country", ""),
-                        event.get("destination_country", ""),
-                        event.get("location", ""),
-                        event.get("status", ""),
-                        event.get("description", ""),
-                        event.get("source", "bdpost"),
-                        event.get("action_code", ""),
-                        event.get("timezone", ""),
-                        event_hash,
-                        now
-                    ))
-                    if cursor.rowcount > 0:
-                        new_events.append(event)
-                        known_hashes.add(event_hash)
+                evt_date = str(event.get("event_date", "")).strip()[:16]
+                evt_status = str(event.get("status", "")).strip().lower()
+                evt_desc = str(event.get("description", "")).strip().lower()
+
+                if event_hash in known_hashes:
+                    continue
+
+                if evt_date and ((evt_date, evt_status) in existing_signatures or (evt_date, evt_desc) in existing_signatures):
+                    continue
+
+                cursor.execute(self._prep_sql("""
+                    INSERT OR IGNORE INTO events (
+                        tracking_number, event_date, origin_country,
+                        destination_country, location, status, description,
+                        source, action_code, timezone, event_hash, created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """), (
+                    event.get("tracking_number", tracking_number),
+                    event.get("event_date", ""),
+                    event.get("origin_country", ""),
+                    event.get("destination_country", ""),
+                    event.get("location", ""),
+                    event.get("status", ""),
+                    event.get("description", ""),
+                    event.get("source", "bdpost"),
+                    event.get("action_code", ""),
+                    event.get("timezone", ""),
+                    event_hash,
+                    now
+                ))
+                if cursor.rowcount > 0:
+                    new_events.append(event)
+                    known_hashes.add(event_hash)
+                    if evt_date:
+                        existing_signatures.add((evt_date, evt_status))
+                        existing_signatures.add((evt_date, evt_desc))
             conn.commit()
 
         return new_events

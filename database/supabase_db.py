@@ -421,29 +421,63 @@ class SupabaseDatabase:
         known_hashes = self.get_known_event_hashes(tracking_number)
         new_events = []
 
+        # Fetch existing events for signature deduplication
+        shipment = self.get_shipment_by_tracking_number(tracking_number)
+        all_numbers = [tracking_number]
+        if shipment:
+            all_numbers.extend([item["tracking_number"] for item in shipment.get("tracking_chain", [])])
+
+        in_filter = f"({','.join(all_numbers)})"
+        try:
+            existing_res = self._req("GET", f"/events?tracking_number=in.{in_filter}&select=event_date,status,description").json()
+        except Exception:
+            existing_res = []
+
+        existing_signatures = set()
+        for r in existing_res:
+            d = str(r.get("event_date") or "").strip()[:16]
+            st = str(r.get("status") or "").strip().lower()
+            desc = str(r.get("description") or "").strip().lower()
+            if d and st:
+                existing_signatures.add((d, st))
+            if d and desc:
+                existing_signatures.add((d, desc))
+
         for event in events:
             event_hash = event["event_hash"]
-            if event_hash not in known_hashes:
-                payload = {
-                    "tracking_number": event.get("tracking_number", tracking_number),
-                    "event_date": event.get("event_date", ""),
-                    "origin_country": event.get("origin_country", ""),
-                    "destination_country": event.get("destination_country", ""),
-                    "location": event.get("location", ""),
-                    "status": event.get("status", ""),
-                    "description": event.get("description", ""),
-                    "source": event.get("source", "bdpost"),
-                    "action_code": event.get("action_code", ""),
-                    "timezone": event.get("timezone", ""),
-                    "event_hash": event_hash,
-                    "created_at": now
-                }
-                try:
-                    self._req("POST", "/events", json=payload, headers={**self.headers, "Prefer": "resolution=ignore-duplicates"})
-                    new_events.append(event)
-                    known_hashes.add(event_hash)
-                except Exception as e:
-                    logger.debug("Event insert notice: %s", e)
+            evt_date = str(event.get("event_date", "")).strip()[:16]
+            evt_status = str(event.get("status", "")).strip().lower()
+            evt_desc = str(event.get("description", "")).strip().lower()
+
+            if event_hash in known_hashes:
+                continue
+
+            if evt_date and ((evt_date, evt_status) in existing_signatures or (evt_date, evt_desc) in existing_signatures):
+                continue
+
+            payload = {
+                "tracking_number": event.get("tracking_number", tracking_number),
+                "event_date": event.get("event_date", ""),
+                "origin_country": event.get("origin_country", ""),
+                "destination_country": event.get("destination_country", ""),
+                "location": event.get("location", ""),
+                "status": event.get("status", ""),
+                "description": event.get("description", ""),
+                "source": event.get("source", "bdpost"),
+                "action_code": event.get("action_code", ""),
+                "timezone": event.get("timezone", ""),
+                "event_hash": event_hash,
+                "created_at": now
+            }
+            try:
+                self._req("POST", "/events", json=payload, headers={**self.headers, "Prefer": "resolution=ignore-duplicates"})
+                new_events.append(event)
+                known_hashes.add(event_hash)
+                if evt_date:
+                    existing_signatures.add((evt_date, evt_status))
+                    existing_signatures.add((evt_date, evt_desc))
+            except Exception as e:
+                logger.debug("Event insert notice: %s", e)
 
         return new_events
 
