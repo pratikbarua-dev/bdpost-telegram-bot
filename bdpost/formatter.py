@@ -1,16 +1,3 @@
-from typing import Dict, Optional
-from bdpost.parser import is_delivered, is_out_for_delivery, is_arrived_at_post_office
-
-
-def format_country_route(origin: Optional[str], destination: Optional[str]) -> str:
-    origin_str = origin.strip() if origin and origin.strip() and origin.strip().lower() != "not found" else "Unknown"
-    dest_str = destination.strip() if destination and destination.strip() and destination.strip().lower() != "not found" else "Unknown"
-    
-    if origin_str != "Unknown" or dest_str != "Unknown":
-        return f"🌍 {origin_str} → {dest_str}"
-    return ""
-
-
 from typing import Dict, Optional, List
 from bdpost.parser import is_delivered, is_out_for_delivery, is_arrived_at_post_office
 

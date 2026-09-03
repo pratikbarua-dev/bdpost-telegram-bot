@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import List, Dict
+from typing import List, Dict, Optional
 from telegram.ext import ContextTypes
 from telegram.error import TelegramError, Forbidden
 
