@@ -54,28 +54,43 @@ def clean_phone_number(raw: Optional[str]) -> Tuple[Optional[str], str]:
 
 def get_cleaned_post_offices_data() -> List[Dict[str, Any]]:
     """
-    Loads and sanitizes the 1,349 post offices dataset.
+    Loads and sanitizes the 1,349 post offices master dataset.
+    Prioritizes bd_post_offices_master_complete.json for full coverage (562+ direct numbers).
     """
-    data_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "bd_post_offices_with_phones.json")
-    if not os.path.exists(data_path):
-        # Alternate path lookup
-        data_path = "/home/p4b/Downloads/gtandtrace/data/bd_post_offices_with_phones.json"
+    candidate_paths = [
+        os.path.join(os.path.dirname(__file__), "..", "data", "bd_post_offices_master_complete.json"),
+        os.path.join(os.path.dirname(__file__), "..", "data", "bd_post_offices_with_phones.json"),
+        os.path.join(os.path.dirname(__file__), "..", "..", "data", "bd_post_offices_master_complete.json"),
+        os.path.join(os.path.dirname(__file__), "..", "..", "data", "bd_post_offices_with_phones.json"),
+    ]
 
-    with open(data_path, "r", encoding="utf-8") as f:
-        raw_list = json.load(f)
+    raw_list = []
+    for p in candidate_paths:
+        if os.path.exists(p):
+            with open(p, "r", encoding="utf-8") as f:
+                raw_list = json.load(f)
+            if raw_list and any(item.get("phone_number") or item.get("phone") for item in raw_list):
+                break
 
     sanitized = []
     for item in raw_list:
-        raw_phone = item.get("phone")
+        raw_phone = item.get("phone_number") or item.get("phone")
         clean_ph, ph_type = clean_phone_number(raw_phone)
+        po_name = item.get("post_office_name") or item.get("postOffice") or ""
+        po_code = item.get("post_code") or item.get("postCode") or ""
+        thana = item.get("thana_upazila") or item.get("thana") or ""
+        dist = item.get("district") or ""
+        div = item.get("division") or ""
+        src = item.get("source") or "bdpost"
+
         sanitized.append({
-            "post_office": str(item.get("postOffice", "")).strip(),
-            "post_code": str(item.get("postCode", "")).strip(),
-            "thana": str(item.get("thana", "")).strip(),
-            "district": str(item.get("district", "")).strip(),
-            "division": str(item.get("division", "")).strip(),
+            "post_office": str(po_name).strip(),
+            "post_code": str(po_code).strip(),
+            "thana": str(thana).strip(),
+            "district": str(dist).strip(),
+            "division": str(div).strip(),
             "phone": clean_ph if ph_type in ["MOBILE", "LANDLINE"] else None,
-            "source": item.get("source", "bdpost")
+            "source": src
         })
     return sanitized
 
@@ -84,12 +99,18 @@ def get_cleaned_officials_data() -> List[Dict[str, Any]]:
     """
     Loads and sanitizes the 288 government postal officials dataset.
     """
-    data_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "official_portal_contacts.json")
-    if not os.path.exists(data_path):
-        data_path = "/home/p4b/Downloads/gtandtrace/data/official_portal_contacts.json"
+    candidate_paths = [
+        os.path.join(os.path.dirname(__file__), "..", "data", "official_portal_contacts.json"),
+        os.path.join(os.path.dirname(__file__), "..", "..", "data", "official_portal_contacts.json"),
+    ]
 
-    with open(data_path, "r", encoding="utf-8") as f:
-        raw_list = json.load(f)
+    raw_list = []
+    for p in candidate_paths:
+        if os.path.exists(p):
+            with open(p, "r", encoding="utf-8") as f:
+                raw_list = json.load(f)
+            if raw_list:
+                break
 
     sanitized = []
     for item in raw_list:
