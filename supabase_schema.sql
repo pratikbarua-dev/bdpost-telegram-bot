@@ -96,6 +96,33 @@ CREATE TABLE IF NOT EXISTS events (
     created_at TEXT NOT NULL
 );
 
+-- 7. Post Offices Directory Table
+CREATE TABLE IF NOT EXISTS post_offices (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    post_office TEXT NOT NULL,
+    post_code TEXT NOT NULL,
+    thana TEXT,
+    district TEXT NOT NULL,
+    division TEXT NOT NULL,
+    phone TEXT,
+    source TEXT,
+    UNIQUE(post_office, post_code, district)
+);
+
+-- 8. Postal Officials Directory Table
+CREATE TABLE IF NOT EXISTS postal_officials (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    portal TEXT NOT NULL,
+    name TEXT NOT NULL,
+    designation TEXT NOT NULL,
+    office TEXT,
+    email TEXT,
+    phone_office TEXT,
+    mobile TEXT,
+    fax TEXT,
+    UNIQUE(portal, name, designation)
+);
+
 -- Indexes for maximum performance
 CREATE INDEX IF NOT EXISTS idx_stn_number ON shipment_tracking_numbers(tracking_number);
 CREATE INDEX IF NOT EXISTS idx_stn_shipment ON shipment_tracking_numbers(shipment_id);
@@ -104,3 +131,6 @@ CREATE INDEX IF NOT EXISTS idx_subs_shipment ON shipment_subscribers(shipment_id
 CREATE INDEX IF NOT EXISTS idx_events_tracking ON events(tracking_number);
 CREATE INDEX IF NOT EXISTS idx_events_hash ON events(event_hash);
 CREATE INDEX IF NOT EXISTS idx_shipments_primary ON shipments(primary_tracking_number);
+CREATE INDEX IF NOT EXISTS idx_po_code ON post_offices(post_code);
+CREATE INDEX IF NOT EXISTS idx_po_district ON post_offices(district);
+

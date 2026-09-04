@@ -179,12 +179,45 @@ class Database:
                 );
             """))
 
+            # 8. post_offices table
+            cursor.execute(self._prep_sql("""
+                CREATE TABLE IF NOT EXISTS post_offices (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    post_office TEXT NOT NULL,
+                    post_code TEXT NOT NULL,
+                    thana TEXT,
+                    district TEXT NOT NULL,
+                    division TEXT NOT NULL,
+                    phone TEXT,
+                    source TEXT,
+                    UNIQUE(post_office, post_code, district)
+                );
+            """))
+
+            # 9. postal_officials table
+            cursor.execute(self._prep_sql("""
+                CREATE TABLE IF NOT EXISTS postal_officials (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    portal TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    designation TEXT NOT NULL,
+                    office TEXT,
+                    email TEXT,
+                    phone_office TEXT,
+                    mobile TEXT,
+                    fax TEXT,
+                    UNIQUE(portal, name, designation)
+                );
+            """))
+
             cursor.execute(self._prep_sql("CREATE INDEX IF NOT EXISTS idx_stn_number ON shipment_tracking_numbers(tracking_number);"))
             cursor.execute(self._prep_sql("CREATE INDEX IF NOT EXISTS idx_stn_shipment ON shipment_tracking_numbers(shipment_id);"))
             cursor.execute(self._prep_sql("CREATE INDEX IF NOT EXISTS idx_subs_user ON shipment_subscribers(telegram_id, active);"))
             cursor.execute(self._prep_sql("CREATE INDEX IF NOT EXISTS idx_subs_shipment ON shipment_subscribers(shipment_id, active);"))
             cursor.execute(self._prep_sql("CREATE INDEX IF NOT EXISTS idx_events_tracking ON events(tracking_number);"))
             cursor.execute(self._prep_sql("CREATE INDEX IF NOT EXISTS idx_notif_queue_pending ON notification_queue(status, next_retry_at);"))
+            cursor.execute(self._prep_sql("CREATE INDEX IF NOT EXISTS idx_po_code ON post_offices(post_code);"))
+            cursor.execute(self._prep_sql("CREATE INDEX IF NOT EXISTS idx_po_district ON post_offices(district);"))
 
             # Automatic Schema Migrations for Users, Shipments & Subscribers tables
             for col, col_def in [("username", "TEXT"), ("full_name", "TEXT"), ("is_banned", "INTEGER DEFAULT 0"), ("updated_at", "TEXT")]:
@@ -208,6 +241,46 @@ class Database:
             conn.commit()
             backend_type = f"PostgreSQL ({self.db_url.split('@')[-1]})" if self.is_postgres else f"SQLite ({self.db_path})"
             logger.info("Database initialized successfully using %s", backend_type)
+
+        # Seed post offices and officials directory if empty
+        self.seed_post_office_directory_if_needed()
+
+    def seed_post_office_directory_if_needed(self) -> None:
+        try:
+            from bdpost.post_office_data import get_cleaned_post_offices_data, get_cleaned_officials_data
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(self._prep_sql("SELECT COUNT(*) as cnt FROM post_offices;"))
+                row = cursor.fetchone()
+                if row and row["cnt"] == 0:
+                    offices = get_cleaned_post_offices_data()
+                    logger.info("Seeding %d post offices into database...", len(offices))
+                    for o in offices:
+                        cursor.execute(self._prep_sql("""
+                            INSERT INTO post_offices (post_office, post_code, thana, district, division, phone, source)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(post_office, post_code, district) DO UPDATE SET
+                                phone = COALESCE(excluded.phone, post_offices.phone),
+                                source = COALESCE(excluded.source, post_offices.source);
+                        """), (o["post_office"], o["post_code"], o["thana"], o["district"], o["division"], o["phone"], o["source"]))
+                    conn.commit()
+
+                cursor.execute(self._prep_sql("SELECT COUNT(*) as cnt FROM postal_officials;"))
+                orow = cursor.fetchone()
+                if orow and orow["cnt"] == 0:
+                    officials = get_cleaned_officials_data()
+                    logger.info("Seeding %d postal officials into database...", len(officials))
+                    for off in officials:
+                        cursor.execute(self._prep_sql("""
+                            INSERT INTO postal_officials (portal, name, designation, office, email, phone_office, mobile, fax)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(portal, name, designation) DO UPDATE SET
+                                mobile = COALESCE(excluded.mobile, postal_officials.mobile),
+                                phone_office = COALESCE(excluded.phone_office, postal_officials.phone_office);
+                        """), (off["portal"], off["name"], off["designation"], off["office"], off["email"], off["phone_office"], off["mobile"], off["fax"]))
+                    conn.commit()
+        except Exception as e:
+            logger.warning("Directory seeding notice: %s", e)
 
     def get_or_create_user(self, telegram_id: int, username: Optional[str] = None, full_name: Optional[str] = None) -> None:
         now = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -1162,3 +1235,33 @@ class Database:
                 WHERE id = ?;
             """), (priority, now, shipment_id))
             conn.commit()
+
+    # -----------------------------------------------------------------
+    # Post Office & Officials Directory Operations
+    # -----------------------------------------------------------------
+    def update_post_office_phone(self, post_code: str, new_phone: str, source: str = "user_verified") -> bool:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(self._prep_sql("""
+                UPDATE post_offices
+                SET phone = ?, source = ?
+                WHERE post_code = ?;
+            """), (new_phone, source, post_code.strip()))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def get_post_offices_by_query(self, query: str, limit: int = 15) -> List[Dict[str, Any]]:
+        q = f"%{query.strip()}%"
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(self._prep_sql("""
+                SELECT * FROM post_offices
+                WHERE post_code LIKE ?
+                   OR post_office LIKE ?
+                   OR thana LIKE ?
+                   OR district LIKE ?
+                ORDER BY district ASC, post_office ASC
+                LIMIT ?;
+            """), (q, q, q, q, limit))
+            return [dict(r) for r in cursor.fetchall()]
+
