@@ -10,8 +10,6 @@ from bdpost.parser import parse_tracking_response as parse_bdpost, is_delivered,
 from bdpost.formatter import format_event_notification, format_handover_notification, format_expiry_notification
 from cainiao.client import track as track_cainiao, CainiaoUnavailableError, CainiaoError
 from cainiao.parser import parse_tracking_response as parse_cainiao, extract_linked_tracking_numbers as extract_linked_cainiao
-from track17.client import track as track_17track, Track17UnavailableError, Track17Error
-from track17.parser import parse_tracking_response as parse_17track, extract_linked_tracking_numbers as extract_linked_17track
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +46,10 @@ async def check_all_trackings(context: ContextTypes.DEFAULT_TYPE) -> None:
             chain_numbers = [primary_number]
 
         # -------------------------------------------------------------
-        # 1. Check International Tracking (Cainiao primary, 17TRACK fallback)
+        # 1. Check Cainiao across chain numbers (if enabled)
         # -------------------------------------------------------------
         if cainiao_enabled:
             for num in list(chain_numbers):
-                cainiao_success = False
                 try:
                     logger.info("Checking Cainiao for shipment %d (%s)", shipment_id, num)
                     cainiao_data = await track_cainiao(num)
@@ -74,7 +71,6 @@ async def check_all_trackings(context: ContextTypes.DEFAULT_TYPE) -> None:
                             logger.info("Scheduler discovered linked tracking number for shipment %d: %s -> %s", shipment_id, num, new_num)
 
                     if cainiao_events:
-                        cainiao_success = True
                         for ce in cainiao_events:
                             ce["tracking_number"] = num
                         new_cainiao_events = db.save_events(primary_number, cainiao_events)
@@ -90,44 +86,6 @@ async def check_all_trackings(context: ContextTypes.DEFAULT_TYPE) -> None:
                     logger.warning("Cainiao check failed for shipment %d (%s): %s", shipment_id, num, ce)
                 except Exception as e:
                     logger.error("Unexpected error checking Cainiao for %s: %s", num, e, exc_info=True)
-
-                # Fallback to 17TRACK if Cainiao failed or returned no events
-                if not cainiao_success:
-                    try:
-                        logger.info("Checking 17TRACK fallback for shipment %d (%s)", shipment_id, num)
-                        t17_data = await track_17track(num)
-                        t17_events = parse_17track(t17_data, query_number=num)
-
-                        discovered_17 = extract_linked_17track(t17_data, num)
-                        for link in discovered_17:
-                            new_num = link["tracking_number"]
-                            if new_num not in chain_numbers:
-                                chain_numbers.append(new_num)
-                                db.link_tracking_number(
-                                    shipment_id=shipment_id,
-                                    tracking_number=new_num,
-                                    source=link.get("source", "17track"),
-                                    num_type=link.get("type", "local"),
-                                    discovered_from=num
-                                )
-                                logger.info("17TRACK discovered linked tracking number for shipment %d: %s -> %s", shipment_id, num, new_num)
-
-                        if t17_events:
-                            for te in t17_events:
-                                te["tracking_number"] = num
-                            new_17_events = db.save_events(primary_number, t17_events)
-                            if new_17_events:
-                                logger.info("17TRACK new event(s) for shipment %d (%s): %d", shipment_id, primary_number, len(new_17_events))
-                                for event in new_17_events:
-                                    await _notify_subscribers(
-                                        context, db, subscribers, primary_number, event,
-                                        local_tracking_number=local_tracking_number,
-                                        tracking_chain=chain_numbers
-                                    )
-                    except (Track17UnavailableError, Track17Error) as te:
-                        logger.warning("17TRACK check notice for shipment %d (%s): %s", shipment_id, num, te)
-                    except Exception as e:
-                        logger.error("Unexpected error checking 17TRACK for %s: %s", num, e, exc_info=True)
 
         # -------------------------------------------------------------
         # 2. Check Bangladesh Post across all numbers in chain (if enabled)

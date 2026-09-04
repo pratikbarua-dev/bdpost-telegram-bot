@@ -15,8 +15,6 @@ from bdpost.client import track as track_bdpost
 from bdpost.parser import parse_tracking_response as parse_bdpost
 from cainiao.client import track as track_cainiao
 from cainiao.parser import parse_tracking_response as parse_cainiao
-from track17.client import track as track_17track
-from track17.parser import parse_tracking_response as parse_17track
 
 logger = logging.getLogger(__name__)
 
@@ -532,17 +530,7 @@ async def handle_admin_test_connections(update: Update, context: ContextTypes.DE
     except Exception as e:
         results.append(f"🔴 <b>Cainiao:</b> Failed ({e})")
 
-    # 2. 17TRACK test
-    t0 = datetime.datetime.now()
-    try:
-        t_data = await track_17track(test_number)
-        t_events = parse_17track(t_data, test_number)
-        elapsed = (datetime.datetime.now() - t0).total_seconds()
-        results.append(f"🟢 <b>17TRACK:</b> OK ({len(t_events)} events, {elapsed:.2f}s)")
-    except Exception as e:
-        results.append(f"🔴 <b>17TRACK:</b> Failed ({e})")
-
-    # 3. Bangladesh Post test
+    # 2. Bangladesh Post test
     t0 = datetime.datetime.now()
     try:
         b_html = await track_bdpost(test_number)
