@@ -10,6 +10,7 @@ from handlers.start import start_handler, help_handler
 from handlers.tracking import track_command, status_command
 from handlers.commands import my_command, stop_command, name_command
 from handlers.feedback import feedback_command
+from handlers.directory import postcode_command
 from handlers.admin import admin_command
 from handlers.messages import message_router
 from handlers.callbacks import callback_query_handler
@@ -81,6 +82,7 @@ def main() -> None:
     application.add_handler(CommandHandler("stop", stop_command))
     application.add_handler(CommandHandler("name", name_command))
     application.add_handler(CommandHandler("rename", name_command))
+    application.add_handler(CommandHandler("postcode", postcode_command))
     application.add_handler(CommandHandler("feedback", feedback_command))
     application.add_handler(CommandHandler("support", feedback_command))
     application.add_handler(CommandHandler("admin", admin_command))

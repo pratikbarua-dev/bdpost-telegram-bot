@@ -32,7 +32,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "• Tap <b>📦 Track Parcel</b> to subscribe for automatic notifications\n"
         "• Tap <b>🔍 Quick Status</b> for an instant lookup without subscribing\n"
         "• Tap <b>📋 My Parcels</b> to view, refresh, or rename (✏️) your parcels\n"
-        "• Tap <b>🛑 Stop Tracking</b> to unsubscribe from updates\n"
+        "• Tap <b>📮 Postcode & Offices</b> to search 1,349 post offices & contacts\n"
         "• Tap <b>💬 Feedback</b> to share ideas, report bugs, or request features\n"
         "━━━━━━━━━━━━━━━━━━━━"
     )

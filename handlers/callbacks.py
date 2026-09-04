@@ -9,6 +9,7 @@ from bdpost.formatter import format_status_message
 from handlers.keyboards import get_main_keyboard, get_parcel_inline_keyboard, get_my_parcels_inline_keyboard
 from handlers.tracking import fetch_tracking_sources
 from handlers.admin import admin_callback_router
+from handlers.directory import handle_report_phone_callback
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,9 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
             parse_mode="HTML"
         )
         record_prompt_message(context, prompt.message_id)
+
+    elif data.startswith("report_phone:"):
+        await handle_report_phone_callback(update, context)
 
     elif data.startswith("stop:"):
         tracking_number = data.split(":", 1)[1]

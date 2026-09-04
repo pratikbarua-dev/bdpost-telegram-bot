@@ -8,7 +8,7 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
     """
     keyboard = [
         ["📦 Track Parcel", "🔍 Quick Status"],
-        ["📋 My Parcels", "🛑 Stop Tracking"],
+        ["📋 My Parcels", "📮 Postcode & Offices"],
         ["💬 Feedback", "ℹ️ Help", "🏠 Home"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
