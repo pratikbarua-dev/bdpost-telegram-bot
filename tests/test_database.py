@@ -98,6 +98,33 @@ class TestDatabaseOperations(unittest.TestCase):
         self.db.set_parcel_label(555, "UG251542831MV", None)
         self.assertIsNone(self.db.get_parcel_label(555, "UG251542831MV"))
 
+    def test_notification_outbox_queue(self):
+        sid = self.db.get_or_create_shipment("UG251542831MV", telegram_id=555)
+        nid = self.db.enqueue_notification(
+            telegram_id=555,
+            shipment_id=sid,
+            payload_html="<b>Test Message</b>",
+            message_type="STATUS_UPDATE"
+        )
+        self.assertTrue(nid > 0)
+
+        pending = self.db.get_pending_notifications(limit=10)
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0]["telegram_id"], 555)
+        self.assertEqual(pending[0]["status"], "PENDING")
+
+        self.db.mark_notification_sent(nid)
+        pending_after = self.db.get_pending_notifications(limit=10)
+        self.assertEqual(len(pending_after), 0)
+
+    def test_priority_scheduling_due(self):
+        sid1 = self.db.get_or_create_shipment("HOT1", telegram_id=101)
+        self.db.update_shipment_priority(sid1, "HOT")
+
+        due = self.db.get_shipments_due_for_check(batch_size=10)
+        self.assertTrue(len(due) >= 1)
+        self.assertEqual(due[0]["primary_tracking_number"], "HOT1")
+
 
 if __name__ == "__main__":
     unittest.main()

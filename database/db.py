@@ -162,16 +162,46 @@ class Database:
                 );
             """))
 
+            # 7. notification_queue table (Transactional Outbox Pattern)
+            cursor.execute(self._prep_sql("""
+                CREATE TABLE IF NOT EXISTS notification_queue (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    telegram_id BIGINT NOT NULL,
+                    shipment_id INTEGER NOT NULL,
+                    event_id INTEGER,
+                    message_type TEXT NOT NULL DEFAULT 'STATUS_UPDATE',
+                    payload_html TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'PENDING',
+                    retry_count INTEGER NOT NULL DEFAULT 0,
+                    next_retry_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    sent_at TEXT
+                );
+            """))
+
             cursor.execute(self._prep_sql("CREATE INDEX IF NOT EXISTS idx_stn_number ON shipment_tracking_numbers(tracking_number);"))
             cursor.execute(self._prep_sql("CREATE INDEX IF NOT EXISTS idx_stn_shipment ON shipment_tracking_numbers(shipment_id);"))
             cursor.execute(self._prep_sql("CREATE INDEX IF NOT EXISTS idx_subs_user ON shipment_subscribers(telegram_id, active);"))
             cursor.execute(self._prep_sql("CREATE INDEX IF NOT EXISTS idx_subs_shipment ON shipment_subscribers(shipment_id, active);"))
             cursor.execute(self._prep_sql("CREATE INDEX IF NOT EXISTS idx_events_tracking ON events(tracking_number);"))
+            cursor.execute(self._prep_sql("CREATE INDEX IF NOT EXISTS idx_notif_queue_pending ON notification_queue(status, next_retry_at);"))
 
-            # Automatic Schema Migrations for Users table
-            for col, col_def in [("username", "TEXT"), ("full_name", "TEXT"), ("is_banned", "INTEGER DEFAULT 0")]:
+            # Automatic Schema Migrations for Users, Shipments & Subscribers tables
+            for col, col_def in [("username", "TEXT"), ("full_name", "TEXT"), ("is_banned", "INTEGER DEFAULT 0"), ("updated_at", "TEXT")]:
                 try:
                     cursor.execute(self._prep_sql(f"ALTER TABLE users ADD COLUMN {col} {col_def};"))
+                except Exception:
+                    pass
+
+            for col, col_def in [("carrier_code", "TEXT DEFAULT 'cainiao'"), ("priority", "TEXT DEFAULT 'HOT'"), ("delivered_at", "TEXT"), ("last_status", "TEXT")]:
+                try:
+                    cursor.execute(self._prep_sql(f"ALTER TABLE shipments ADD COLUMN {col} {col_def};"))
+                except Exception:
+                    pass
+
+            for col, col_def in [("notifications_enabled", "INTEGER DEFAULT 1"), ("updated_at", "TEXT")]:
+                try:
+                    cursor.execute(self._prep_sql(f"ALTER TABLE shipment_subscribers ADD COLUMN {col} {col_def};"))
                 except Exception:
                     pass
 
@@ -1021,3 +1051,114 @@ class Database:
             cursor = conn.cursor()
             cursor.execute(self._prep_sql("SELECT telegram_id FROM users WHERE is_banned = 0;"))
             return [r["telegram_id"] for r in cursor.fetchall()]
+
+    # -----------------------------------------------------------------
+    # Notification Outbox Queue Methods
+    # -----------------------------------------------------------------
+    def enqueue_notification(
+        self,
+        telegram_id: int,
+        shipment_id: int,
+        payload_html: str,
+        message_type: str = "STATUS_UPDATE",
+        event_id: Optional[int] = None
+    ) -> int:
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(self._prep_sql("""
+                INSERT INTO notification_queue (
+                    telegram_id, shipment_id, event_id, message_type,
+                    payload_html, status, retry_count, next_retry_at, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, 'PENDING', 0, ?, ?);
+            """), (telegram_id, shipment_id, event_id, message_type, payload_html, now, now))
+            conn.commit()
+            return cursor.lastrowid or 0
+
+    def get_pending_notifications(self, limit: int = 50) -> List[Dict[str, Any]]:
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(self._prep_sql("""
+                SELECT nq.*, s.primary_tracking_number
+                FROM notification_queue nq
+                JOIN shipments s ON nq.shipment_id = s.id
+                WHERE nq.status = 'PENDING' AND nq.next_retry_at <= ?
+                ORDER BY nq.id ASC
+                LIMIT ?;
+            """), (now, limit))
+            return [dict(r) for r in cursor.fetchall()]
+
+    def mark_notification_sent(self, notification_id: int) -> None:
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(self._prep_sql("""
+                UPDATE notification_queue
+                SET status = 'SENT', sent_at = ?
+                WHERE id = ?;
+            """), (now, notification_id))
+            conn.commit()
+
+    def mark_notification_failed(self, notification_id: int, retry_count: int, next_retry_seconds: int = 60) -> None:
+        next_dt = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=next_retry_seconds)).isoformat()
+        new_status = 'FAILED' if retry_count >= 5 else 'PENDING'
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(self._prep_sql("""
+                UPDATE notification_queue
+                SET status = ?, retry_count = ?, next_retry_at = ?
+                WHERE id = ?;
+            """), (new_status, retry_count, next_dt, notification_id))
+            conn.commit()
+
+    # -----------------------------------------------------------------
+    # Priority-Aware Dynamic Scheduler Methods
+    # -----------------------------------------------------------------
+    def get_shipments_due_for_check(self, batch_size: int = 25) -> List[Dict[str, Any]]:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        hot_threshold = (now - datetime.timedelta(minutes=15)).isoformat()
+        warm_threshold = (now - datetime.timedelta(minutes=30)).isoformat()
+        cold_threshold = (now - datetime.timedelta(hours=2)).isoformat()
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(self._prep_sql("""
+                SELECT DISTINCT s.*
+                FROM shipments s
+                JOIN shipment_subscribers sub ON s.id = sub.shipment_id
+                WHERE sub.active = 1 AND s.is_delivered = 0
+                  AND (
+                    s.last_checked_at IS NULL
+                    OR (COALESCE(s.priority, 'HOT') = 'HOT' AND s.last_checked_at <= ?)
+                    OR (s.priority = 'WARM' AND s.last_checked_at <= ?)
+                    OR (s.priority = 'COLD' AND s.last_checked_at <= ?)
+                  )
+                ORDER BY s.last_checked_at ASC
+                LIMIT ?;
+            """), (hot_threshold, warm_threshold, cold_threshold, batch_size))
+            rows = cursor.fetchall()
+            shipments = []
+            for r in rows:
+                shipment = dict(r)
+                cursor.execute(self._prep_sql("""
+                    SELECT tracking_number, source, type, discovered_from, is_active
+                    FROM shipment_tracking_numbers
+                    WHERE shipment_id = ? AND is_active = 1
+                    ORDER BY id ASC;
+                """), (shipment["id"],))
+                shipment["tracking_chain"] = [dict(tr) for tr in cursor.fetchall()]
+                shipments.append(shipment)
+            return shipments
+
+    def update_shipment_priority(self, shipment_id: int, priority: str) -> None:
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(self._prep_sql("""
+                UPDATE shipments
+                SET priority = ?, updated_at = ?
+                WHERE id = ?;
+            """), (priority, now, shipment_id))
+            conn.commit()

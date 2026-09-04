@@ -14,6 +14,7 @@ from handlers.admin import admin_command
 from handlers.messages import message_router
 from handlers.callbacks import callback_query_handler
 from scheduler.checker import check_all_trackings
+from scheduler.outbox import dispatch_notification_outbox
 from server import start_health_server
 
 logging.basicConfig(
@@ -94,12 +95,21 @@ def main() -> None:
     # JobQueue Scheduler
     job_queue = application.job_queue
     if job_queue is not None:
+        # Priority-aware tracking checker
         job_queue.run_repeating(
             check_all_trackings,
             interval=config.POLL_INTERVAL,
             first=10
         )
         logger.info("Scheduled background checker every %d seconds.", config.POLL_INTERVAL)
+
+        # Dedicated Transactional Outbox Notification Dispatcher (runs every 3 seconds)
+        job_queue.run_repeating(
+            dispatch_notification_outbox,
+            interval=3,
+            first=5
+        )
+        logger.info("Scheduled outbox notification dispatcher every 3 seconds.")
     else:
         logger.warning("JobQueue not initialized. Make sure python-telegram-bot[job-queue] is installed.")
 

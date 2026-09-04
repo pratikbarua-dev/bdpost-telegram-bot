@@ -707,3 +707,96 @@ class SupabaseDatabase:
             return [r["telegram_id"] for r in res]
         except Exception:
             return []
+
+    # -------------------------------------------------------------
+    # Notification Outbox Queue Methods
+    # -------------------------------------------------------------
+    def enqueue_notification(
+        self,
+        telegram_id: int,
+        shipment_id: int,
+        payload_html: str,
+        message_type: str = "STATUS_UPDATE",
+        event_id: Optional[int] = None
+    ) -> int:
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        payload = {
+            "telegram_id": telegram_id,
+            "shipment_id": shipment_id,
+            "event_id": event_id,
+            "message_type": message_type,
+            "payload_html": payload_html,
+            "status": "PENDING",
+            "retry_count": 0,
+            "next_retry_at": now,
+            "created_at": now
+        }
+        try:
+            res = self._req("POST", "/notification_queue", json=payload).json()
+            return res[0]["id"] if res else 0
+        except Exception as e:
+            logger.error("enqueue_notification error: %s", e)
+            return 0
+
+    def get_pending_notifications(self, limit: int = 50) -> List[Dict]:
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        try:
+            res = self._req("GET", f"/notification_queue?status=eq.PENDING&next_retry_at=lte.{now}&order=id.asc&limit={limit}").json()
+            for notif in res:
+                sid = notif.get("shipment_id")
+                if sid:
+                    s_res = self._req("GET", f"/shipments?id=eq.{sid}&select=primary_tracking_number&limit=1").json()
+                    notif["primary_tracking_number"] = s_res[0]["primary_tracking_number"] if s_res else ""
+            return res
+        except Exception as e:
+            logger.error("get_pending_notifications error: %s", e)
+            return []
+
+    def mark_notification_sent(self, notification_id: int) -> None:
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        try:
+            self._req("PATCH", f"/notification_queue?id=eq.{notification_id}", json={"status": "SENT", "sent_at": now})
+        except Exception as e:
+            logger.error("mark_notification_sent error: %s", e)
+
+    def mark_notification_failed(self, notification_id: int, retry_count: int, next_retry_seconds: int = 60) -> None:
+        next_dt = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=next_retry_seconds)).isoformat()
+        new_status = 'FAILED' if retry_count >= 5 else 'PENDING'
+        try:
+            self._req("PATCH", f"/notification_queue?id=eq.{notification_id}", json={"status": new_status, "retry_count": retry_count, "next_retry_at": next_dt})
+        except Exception as e:
+            logger.error("mark_notification_failed error: %s", e)
+
+    # -------------------------------------------------------------
+    # Priority-Aware Dynamic Scheduler Methods
+    # -------------------------------------------------------------
+    def get_shipments_due_for_check(self, batch_size: int = 25) -> List[Dict]:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        hot_threshold = (now - datetime.timedelta(minutes=15)).isoformat()
+        try:
+            active_shipments = self.get_all_active_shipments()
+            due = []
+            for s in active_shipments:
+                last_checked = s.get("last_checked_at")
+                priority = s.get("priority") or "HOT"
+                if not last_checked:
+                    due.append(s)
+                elif priority == "HOT" and last_checked <= hot_threshold:
+                    due.append(s)
+                elif priority == "WARM" and last_checked <= (now - datetime.timedelta(minutes=30)).isoformat():
+                    due.append(s)
+                elif priority == "COLD" and last_checked <= (now - datetime.timedelta(hours=2)).isoformat():
+                    due.append(s)
+                if len(due) >= batch_size:
+                    break
+            return due if due else active_shipments[:batch_size]
+        except Exception as e:
+            logger.error("get_shipments_due_for_check error: %s", e)
+            return self.get_all_active_shipments()[:batch_size]
+
+    def update_shipment_priority(self, shipment_id: int, priority: str) -> None:
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        try:
+            self._req("PATCH", f"/shipments?id=eq.{shipment_id}", json={"priority": priority, "updated_at": now})
+        except Exception as e:
+            logger.error("update_shipment_priority error: %s", e)
