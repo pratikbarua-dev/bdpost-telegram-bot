@@ -99,7 +99,8 @@ def main() -> None:
         job_queue.run_repeating(
             check_all_trackings,
             interval=config.POLL_INTERVAL,
-            first=10
+            first=10,
+            job_kwargs={"misfire_grace_time": 120}
         )
         logger.info("Scheduled background checker every %d seconds.", config.POLL_INTERVAL)
 
@@ -108,7 +109,8 @@ def main() -> None:
             dispatch_notification_outbox,
             interval=5,
             first=5,
-            name="outbox_dispatcher"
+            name="outbox_dispatcher",
+            job_kwargs={"misfire_grace_time": 60}
         )
         logger.info("Scheduled outbox notification dispatcher every 5 seconds.")
     else:
