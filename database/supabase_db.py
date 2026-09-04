@@ -42,19 +42,36 @@ class SupabaseDatabase:
         full_name: Optional[str] = None
     ) -> None:
         now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        payload = {"telegram_id": telegram_id, "created_at": now}
-        if username:
-            payload["username"] = username
-        if full_name:
-            payload["full_name"] = full_name
         try:
-            self._req("POST", "/users", json=payload, headers={**self.headers, "Prefer": "resolution=merge-duplicates"})
-        except Exception:
-            try:
-                # Fallback without extra columns if not migrated
-                self._req("POST", "/users", json={"telegram_id": telegram_id, "created_at": now}, headers={**self.headers, "Prefer": "resolution=ignore-duplicates"})
-            except Exception as e:
-                logger.debug("get_or_create_user notice: %s", e)
+            # 1. Check if user already exists
+            check_res = self.client.get(f"/users?telegram_id=eq.{telegram_id}&select=id&limit=1")
+            if check_res.status_code == 200 and check_res.json():
+                # User exists, optionally update username & full_name
+                patch_payload = {}
+                if username:
+                    patch_payload["username"] = username
+                if full_name:
+                    patch_payload["full_name"] = full_name
+                if patch_payload:
+                    try:
+                        self.client.patch(f"/users?telegram_id=eq.{telegram_id}", json=patch_payload)
+                    except Exception:
+                        pass
+                return
+
+            # 2. User does not exist, insert
+            new_payload = {"telegram_id": telegram_id, "created_at": now}
+            if username:
+                new_payload["username"] = username
+            if full_name:
+                new_payload["full_name"] = full_name
+
+            ins_res = self.client.post("/users", json=new_payload)
+            if ins_res.status_code >= 400:
+                # If failed due to extra column mismatch, fallback to basic schema
+                self.client.post("/users", json={"telegram_id": telegram_id, "created_at": now})
+        except Exception as e:
+            logger.debug("get_or_create_user notice: %s", e)
 
     # -------------------------------------------------------------
     # Shipments & Chains
@@ -542,8 +559,12 @@ class SupabaseDatabase:
             handover_count = 0
 
         try:
-            ban_res = self._req("GET", "/users?is_banned=eq.1&select=count", headers={**self.headers, "Prefer": "count=exact"}).headers.get("content-range", "")
-            banned_users = int(ban_res.split("/")[-1]) if "/" in ban_res else 0
+            ban_res = self.client.get("/users?is_banned=eq.1&select=count", headers={**self.headers, "Prefer": "count=exact"})
+            if ban_res.status_code == 200:
+                header_range = ban_res.headers.get("content-range", "")
+                banned_users = int(header_range.split("/")[-1]) if "/" in header_range else 0
+            else:
+                banned_users = 0
         except Exception:
             banned_users = 0
 
@@ -630,8 +651,11 @@ class SupabaseDatabase:
 
     def is_user_banned(self, telegram_id: int) -> bool:
         try:
-            res = self._req("GET", f"/users?telegram_id=eq.{telegram_id}&select=is_banned&limit=1").json()
-            return bool(res and res[0].get("is_banned") == 1)
+            res = self.client.get(f"/users?telegram_id=eq.{telegram_id}&select=is_banned&limit=1")
+            if res.status_code == 200:
+                data = res.json()
+                return bool(data and data[0].get("is_banned") == 1)
+            return False
         except Exception:
             return False
 
