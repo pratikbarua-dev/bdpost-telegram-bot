@@ -2,6 +2,7 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from telegram.error import BadRequest
 from database.db import Database
 from bdpost.parser import get_latest_event, is_bdpost_handover_event
 from bdpost.formatter import format_status_message
@@ -58,13 +59,21 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
                     local_tracking_number=local_num,
                     header_title="🔄 <b>Updated Status</b>"
                 )
-                await query.edit_message_text(
-                    msg,
-                    reply_markup=get_parcel_inline_keyboard(tracking_number),
-                    parse_mode="HTML"
-                )
+                try:
+                    await query.edit_message_text(
+                        msg,
+                        reply_markup=get_parcel_inline_keyboard(tracking_number),
+                        parse_mode="HTML"
+                    )
+                except BadRequest as bre:
+                    if "Message is not modified" in str(bre):
+                        await query.answer("Status is already up to date! (No new changes)", show_alert=False)
+                    else:
+                        raise
             else:
                 await query.message.reply_text(f"🔎 No information found for <code>{tracking_number}</code>.", parse_mode="HTML")
+        except BadRequest:
+            pass
         except Exception as e:
             logger.error("Error refreshing %s: %s", tracking_number, e)
             await query.message.reply_text(f"⚠️ Could not refresh status for <code>{tracking_number}</code> right now.", parse_mode="HTML")
@@ -164,11 +173,17 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
 
         lines.append("━━━━━━━━━━━━━━━━━━━━")
 
-        await query.edit_message_text(
-            "\n".join(lines),
-            reply_markup=get_my_parcels_inline_keyboard(trackings),
-            parse_mode="HTML"
-        )
+        try:
+            await query.edit_message_text(
+                "\n".join(lines),
+                reply_markup=get_my_parcels_inline_keyboard(trackings),
+                parse_mode="HTML"
+            )
+        except BadRequest as bre:
+            if "Message is not modified" in str(bre):
+                await query.answer("All parcels are already up to date!", show_alert=False)
+            else:
+                raise
 
     elif data == "go_home":
         welcome_text = (

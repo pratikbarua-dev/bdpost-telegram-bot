@@ -103,13 +103,14 @@ def main() -> None:
         )
         logger.info("Scheduled background checker every %d seconds.", config.POLL_INTERVAL)
 
-        # Dedicated Transactional Outbox Notification Dispatcher (runs every 3 seconds)
+        # Dedicated Transactional Outbox Notification Dispatcher (runs every 5 seconds)
         job_queue.run_repeating(
             dispatch_notification_outbox,
-            interval=3,
-            first=5
+            interval=5,
+            first=5,
+            name="outbox_dispatcher"
         )
-        logger.info("Scheduled outbox notification dispatcher every 3 seconds.")
+        logger.info("Scheduled outbox notification dispatcher every 5 seconds.")
     else:
         logger.warning("JobQueue not initialized. Make sure python-telegram-bot[job-queue] is installed.")
 
