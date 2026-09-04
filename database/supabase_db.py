@@ -719,7 +719,7 @@ class SupabaseDatabase:
         message_type: str = "STATUS_UPDATE",
         event_id: Optional[int] = None
     ) -> int:
-        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         payload = {
             "telegram_id": telegram_id,
             "shipment_id": shipment_id,
@@ -732,40 +732,49 @@ class SupabaseDatabase:
             "created_at": now
         }
         try:
-            res = self._req("POST", "/notification_queue", json=payload).json()
-            return res[0]["id"] if res else 0
+            res = self.client.post("/notification_queue", json=payload)
+            if res.status_code in [200, 201]:
+                data = res.json()
+                return data[0]["id"] if data else 0
+            return 0
         except Exception as e:
-            logger.error("enqueue_notification error: %s", e)
+            logger.debug("enqueue_notification notice: %s", e)
             return 0
 
     def get_pending_notifications(self, limit: int = 50) -> List[Dict]:
-        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         try:
-            res = self._req("GET", f"/notification_queue?status=eq.PENDING&next_retry_at=lte.{now}&order=id.asc&limit={limit}").json()
-            for notif in res:
-                sid = notif.get("shipment_id")
-                if sid:
-                    s_res = self._req("GET", f"/shipments?id=eq.{sid}&select=primary_tracking_number&limit=1").json()
-                    notif["primary_tracking_number"] = s_res[0]["primary_tracking_number"] if s_res else ""
-            return res
+            res = self.client.get(f"/notification_queue?status=eq.PENDING&next_retry_at=lte.{now}&order=id.asc&limit={limit}")
+            if res.status_code == 200:
+                rows = res.json()
+                for notif in rows:
+                    sid = notif.get("shipment_id")
+                    if sid:
+                        try:
+                            s_res = self.client.get(f"/shipments?id=eq.{sid}&select=primary_tracking_number&limit=1").json()
+                            notif["primary_tracking_number"] = s_res[0]["primary_tracking_number"] if s_res else ""
+                        except Exception:
+                            notif["primary_tracking_number"] = ""
+                return rows
+            return []
         except Exception as e:
-            logger.error("get_pending_notifications error: %s", e)
+            logger.debug("get_pending_notifications notice: %s", e)
             return []
 
     def mark_notification_sent(self, notification_id: int) -> None:
-        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         try:
-            self._req("PATCH", f"/notification_queue?id=eq.{notification_id}", json={"status": "SENT", "sent_at": now})
+            self.client.patch(f"/notification_queue?id=eq.{notification_id}", json={"status": "SENT", "sent_at": now})
         except Exception as e:
-            logger.error("mark_notification_sent error: %s", e)
+            logger.debug("mark_notification_sent notice: %s", e)
 
     def mark_notification_failed(self, notification_id: int, retry_count: int, next_retry_seconds: int = 60) -> None:
-        next_dt = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=next_retry_seconds)).isoformat()
+        next_dt = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=next_retry_seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
         new_status = 'FAILED' if retry_count >= 5 else 'PENDING'
         try:
-            self._req("PATCH", f"/notification_queue?id=eq.{notification_id}", json={"status": new_status, "retry_count": retry_count, "next_retry_at": next_dt})
+            self.client.patch(f"/notification_queue?id=eq.{notification_id}", json={"status": new_status, "retry_count": retry_count, "next_retry_at": next_dt})
         except Exception as e:
-            logger.error("mark_notification_failed error: %s", e)
+            logger.debug("mark_notification_failed notice: %s", e)
 
     # -------------------------------------------------------------
     # Priority-Aware Dynamic Scheduler Methods
