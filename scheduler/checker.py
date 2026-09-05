@@ -76,7 +76,14 @@ async def _process_single_shipment_check(context: ContextTypes.DEFAULT_TYPE, db:
     # 1. Check Cainiao across chain numbers (if enabled)
     # -------------------------------------------------------------
     if cainiao_enabled:
-        for num in list(chain_numbers):
+        # Prioritize single active Cainiao identifier per shipment to avoid duplicate API hammering
+        cainiao_targets = [n for n in chain_numbers if n.startswith("CNG") or n.startswith("AP")]
+        if not cainiao_targets:
+            cainiao_targets = [primary_number]
+        else:
+            cainiao_targets = [cainiao_targets[-1]]  # Use latest known alias
+
+        for num in cainiao_targets:
             try:
                 logger.info("Checking Cainiao for shipment %d (%s)", shipment_id, num)
                 cainiao_data = await track_cainiao(num)

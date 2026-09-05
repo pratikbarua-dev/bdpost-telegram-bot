@@ -1,4 +1,5 @@
 import asyncio
+import time
 import urllib.parse
 import httpx
 import logging
@@ -11,7 +12,7 @@ logger = logging.getLogger(__name__)
 CAINIAO_BASE_URL = "https://global.cainiao.com"
 CAINIAO_DETAIL_JSON = "https://global.cainiao.com/global/detail.json"
 DEFAULT_USER_AGENT = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
 
@@ -23,16 +24,24 @@ class CainiaoUnavailableError(CainiaoError):
     pass
 
 
+class CainiaoRateLimitError(CainiaoUnavailableError):
+    pass
+
+
 class CainiaoClient:
     """
     Persistent Cainiao HTTP client that queries the Cainiao Global tracking endpoint
-    using standard browser headers, optionally routing through a Cloudflare Worker proxy.
+    using modern browser headers, rate limiting, and circuit breaker protection,
+    optionally routing through a Cloudflare Worker proxy.
     """
     _instance: Optional["CainiaoClient"] = None
 
     def __init__(self):
         self._client: Optional[httpx.AsyncClient] = None
         self._lock = asyncio.Lock()
+        self._last_request_time: float = 0.0
+        self._cooldown_until: float = 0.0
+        self._min_delay: float = 1.5  # seconds between consecutive requests
 
     @classmethod
     def get_instance(cls) -> "CainiaoClient":
@@ -44,10 +53,12 @@ class CainiaoClient:
         headers = {
             "accept": "application/json, text/plain, */*",
             "accept-language": "en-US,en;q=0.9",
+            "cache-control": "no-cache",
+            "pragma": "no-cache",
             "priority": "u=1, i",
-            "sec-ch-ua": '"Chromium";v="146", "Not-A.Brand";v="24"',
+            "sec-ch-ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
             "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": '"Linux"',
+            "sec-ch-ua-platform": '"Windows"',
             "sec-fetch-dest": "empty",
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "same-origin",
@@ -62,7 +73,7 @@ class CainiaoClient:
     async def _get_or_create_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(
-                timeout=30.0,
+                timeout=25.0,
                 follow_redirects=True,
                 headers={"user-agent": DEFAULT_USER_AGENT}
             )
@@ -77,10 +88,24 @@ class CainiaoClient:
                 await self._client.aclose()
             self._client = None
 
+    def trigger_cooldown(self, seconds: int = 180) -> None:
+        """
+        Activates circuit breaker for Cainiao queries.
+        """
+        self._cooldown_until = time.time() + seconds
+        logger.warning("Cainiao circuit breaker triggered: cooling down for %d seconds", seconds)
+
+    def is_cooling_down(self) -> bool:
+        return time.time() < self._cooldown_until
+
     async def track(self, tracking_number: str, allow_retry: bool = True) -> Dict[str, Any]:
         """
         Sends GET request to Cainiao global tracking endpoint (optionally via CF Worker proxy).
         """
+        if self.is_cooling_down():
+            remaining = int(self._cooldown_until - time.time())
+            raise CainiaoRateLimitError(f"Cainiao circuit breaker active (cooling down for {remaining}s)")
+
         cleaned_num = tracking_number.strip().upper()
         referer = f"{CAINIAO_BASE_URL}/newDetail.htm?mailNoList={cleaned_num}&otherMailNoList="
         params = {
@@ -91,6 +116,13 @@ class CainiaoClient:
         headers = self._get_browser_headers(referer=referer)
 
         async with self._lock:
+            # Enforce rate-limit interval
+            now = time.time()
+            elapsed = now - self._last_request_time
+            if elapsed < self._min_delay:
+                await asyncio.sleep(self._min_delay - elapsed)
+            self._last_request_time = time.time()
+
             client = await self._get_or_create_client()
 
         try:
@@ -110,21 +142,35 @@ class CainiaoClient:
             try:
                 data = response.json()
             except Exception:
-                logger.warning("Cainiao returned non-JSON / interstitial HTML for %s", cleaned_num)
-                raise CainiaoUnavailableError("Cainiao returned non-JSON challenge")
+                logger.warning("Cainiao returned non-JSON / captcha challenge for %s", cleaned_num)
+                self.trigger_cooldown(180)
+                raise CainiaoRateLimitError("Cainiao returned non-JSON challenge")
 
             if not isinstance(data, dict):
                 raise CainiaoError("Invalid JSON response received from Cainiao")
 
+            # Check for Alibaba WAF rate limit / challenge in JSON body
+            ret = data.get("ret") or []
+            is_waf_limited = any(
+                "FAIL_SYS_USER_VALIDATE" in str(r) or "RGV587_ERROR" in str(r) for r in ret
+            ) or (isinstance(data.get("data"), dict) and "punish" in str(data.get("data", {}).get("url", "")))
+
+            if is_waf_limited:
+                logger.warning("Cainiao WAF rate limit triggered for %s", cleaned_num)
+                self.trigger_cooldown(180)
+                raise CainiaoRateLimitError("Cainiao rate limited (WAF)")
+
             modules = data.get("module")
             is_empty = (
-                not data.get("success") or
-                not modules or
-                (isinstance(modules, list) and len(modules) > 0 and not modules[0].get("detailList") and not modules[0].get("latestTrace") and modules[0].get("status") == "SELLER_PREPARING")
+                data.get("success") is True and
+                (
+                    not modules or
+                    (isinstance(modules, list) and len(modules) > 0 and not modules[0].get("detailList") and not modules[0].get("latestTrace") and modules[0].get("status") == "SELLER_PREPARING")
+                )
             )
 
             if is_empty and allow_retry:
-                logger.info("Cainiao response for %s was empty/stale. Refreshing session and retrying once...", cleaned_num)
+                logger.debug("Cainiao response for %s was empty. Retrying once...", cleaned_num)
                 await self.refresh_session()
                 return await self.track(cleaned_num, allow_retry=False)
 
@@ -134,10 +180,10 @@ class CainiaoClient:
             logger.warning("Cainiao timeout for %s", cleaned_num)
             raise CainiaoUnavailableError("Cainiao tracking is temporarily unavailable")
         except httpx.HTTPStatusError as e:
-            if allow_retry and e.response.status_code in [401, 403, 429]:
-                logger.warning("Cainiao returned status %d. Refreshing session...", e.response.status_code)
-                await self.refresh_session()
-                return await self.track(cleaned_num, allow_retry=False)
+            if e.response.status_code in [401, 403, 429]:
+                logger.warning("Cainiao returned status %d. Entering cooldown...", e.response.status_code)
+                self.trigger_cooldown(180)
+                raise CainiaoRateLimitError(f"Cainiao returned HTTP {e.response.status_code}")
             logger.error("Cainiao HTTP error: %s", e.response.status_code)
             raise CainiaoUnavailableError("Cainiao tracking is temporarily unavailable")
         except httpx.RequestError as e:
@@ -157,3 +203,4 @@ class CainiaoClient:
 # Module-level convenience function preserving backward compatibility
 async def track(tracking_number: str) -> Dict[str, Any]:
     return await CainiaoClient.get_instance().track(tracking_number)
+
