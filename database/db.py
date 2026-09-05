@@ -932,6 +932,20 @@ class Database:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             placeholders = ",".join("?" * len(all_numbers))
+            
+            # 1. Prioritize Bangladesh Post event if available (destination carrier status supersedes origin linehaul)
+            cursor.execute(self._prep_sql(f"""
+                SELECT *
+                FROM events
+                WHERE tracking_number IN ({placeholders}) AND source = 'bdpost'
+                ORDER BY id DESC
+                LIMIT 1
+            """), tuple(all_numbers))
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+
+            # 2. Otherwise fallback to the latest carrier event
             cursor.execute(self._prep_sql(f"""
                 SELECT *
                 FROM events

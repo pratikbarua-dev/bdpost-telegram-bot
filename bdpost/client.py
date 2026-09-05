@@ -1,6 +1,9 @@
 import json
+import urllib.parse
 import httpx
 import logging
+
+import config
 
 logger = logging.getLogger(__name__)
 
@@ -27,14 +30,25 @@ async def _fetch_endpoint(client: httpx.AsyncClient, url: str, tracking_number: 
         "X-Requested-With": "XMLHttpRequest",
         "Origin": "https://ipsbd.bdpost.gov.bd",
         "Referer": "https://ipsbd.bdpost.gov.bd/mail-tracking.html",
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     }
+    if config.CF_PROXY_SECRET:
+        headers["x-proxy-secret"] = config.CF_PROXY_SECRET
 
-    response = await client.post(
-        url,
-        data={"item_id": tracking_number},
-        headers=headers
-    )
+    if config.CF_PROXY_URL:
+        req_url = f"{config.CF_PROXY_URL.rstrip('/')}/?url={urllib.parse.quote(url, safe='')}"
+        response = await client.post(
+            req_url,
+            data={"item_id": tracking_number},
+            headers=headers
+        )
+    else:
+        response = await client.post(
+            url,
+            data={"item_id": tracking_number},
+            headers=headers
+        )
+
     response.raise_for_status()
     text = response.text
 

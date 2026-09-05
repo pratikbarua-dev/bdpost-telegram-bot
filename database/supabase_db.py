@@ -519,6 +519,13 @@ class SupabaseDatabase:
             all_numbers.extend([item["tracking_number"] for item in shipment.get("tracking_chain", [])])
 
         in_filter = f"({','.join(all_numbers)})"
+        # 1. Check for destination BD Post events first
+        res_bd = self._req("GET", f"/events?tracking_number=in.{in_filter}&source=eq.bdpost&select=*&order=id.desc&limit=1")
+        rows_bd = res_bd.json()
+        if rows_bd:
+            return rows_bd[0]
+
+        # 2. Otherwise get latest event
         res = self._req("GET", f"/events?tracking_number=in.{in_filter}&select=*&order=id.desc&limit=1")
         rows = res.json()
         if rows:
