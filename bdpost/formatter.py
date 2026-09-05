@@ -90,6 +90,28 @@ def format_status_message(
     if chain_str:
         extra_meta.append(chain_str)
 
+    # Attach Post Office & Direct Phone Block for BD Post events
+    if source == "bdpost" and location:
+        from bdpost.directory import match_location_to_post_office
+        match_info = match_location_to_post_office(location)
+        if match_info:
+            if match_info.get("tier") == "transit_hub":
+                extra_meta.append(f"🏢 <b>Facility:</b> {_esc(match_info.get('facility'))}\n   <i>⏳ In transit to your local delivery post office.</i>")
+            elif match_info.get("tier") in ["match", "exact"] and match_info.get("post_office"):
+                po = match_info["post_office"]
+                po_name = _esc(po.get("post_office"))
+                po_code = _esc(po.get("post_code"))
+                po_dist = _esc(po.get("district"))
+                phone = po.get("phone")
+
+                extra_meta.append(f"🏛️ <b>Post Office:</b> {po_name} (Postcode: <code>{po_code}</code>, {po_dist})")
+                if phone:
+                    extra_meta.append(f"☎️ <b>Office Phone:</b> <code>{_esc(phone)}</code>\n   <i>💡 Tip: Call for early pickup or delivery queries!</i>")
+                else:
+                    extra_meta.append("ℹ️ <i>Direct office phone not on record yet.</i>\n   <i>💡 Know their number? Tap below to contribute!</i>")
+            elif match_info.get("tier") == "ambiguous":
+                extra_meta.append(f"💡 <i>Multiple post offices match '{_esc(location)}'. Tap below to find yours.</i>")
+
     if extra_meta:
         lines.append("")
         lines.extend(extra_meta)
@@ -159,6 +181,28 @@ def format_event_notification(
     chain_str = format_tracking_chain(tracking_chain)
     if chain_str:
         extra_meta.append(chain_str)
+
+    # Attach Post Office & Direct Phone Block for BD Post events
+    if source == "bdpost" and location:
+        from bdpost.directory import match_location_to_post_office
+        match_info = match_location_to_post_office(location)
+        if match_info:
+            if match_info.get("tier") == "transit_hub":
+                extra_meta.append(f"🏢 <b>Facility:</b> {_esc(match_info.get('facility'))}\n   <i>⏳ In transit to your local delivery post office.</i>")
+            elif match_info.get("tier") in ["match", "exact"] and match_info.get("post_office"):
+                po = match_info["post_office"]
+                po_name = _esc(po.get("post_office"))
+                po_code = _esc(po.get("post_code"))
+                po_dist = _esc(po.get("district"))
+                phone = po.get("phone")
+
+                extra_meta.append(f"🏛️ <b>Post Office:</b> {po_name} (Postcode: <code>{po_code}</code>, {po_dist})")
+                if phone:
+                    extra_meta.append(f"☎️ <b>Office Phone:</b> <code>{_esc(phone)}</code>\n   <i>💡 Tip: Call for early pickup or delivery queries!</i>")
+                else:
+                    extra_meta.append("ℹ️ <i>Direct office phone not on record yet.</i>\n   <i>💡 Know their number? Tap below to contribute!</i>")
+            elif match_info.get("tier") == "ambiguous":
+                extra_meta.append(f"💡 <i>Multiple post offices match '{_esc(location)}'. Tap below to find yours.</i>")
 
     if extra_meta:
         lines.append("")

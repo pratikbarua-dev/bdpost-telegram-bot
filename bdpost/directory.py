@@ -131,22 +131,90 @@ def get_fallback_contact_for_office(post_office: Dict[str, Any]) -> Dict[str, An
     }
 
 
-def match_location_to_post_office(location_str: str) -> Optional[Tuple[Dict[str, Any], Dict[str, Any]]]:
+TRANSIT_HUBS = ['airport', 'sorting', 'impc', 'foreign post', 'ded exch', 'inward', 'transit', 'exchange']
+STOP_WORDS = {'model', 'town', 'sub', 'office', 'branch', 'bazar', 'sadar', 'road', 'area'}
+
+
+def match_location_to_post_office(location_str: str) -> Optional[Dict[str, Any]]:
     """
-    Extracts post office name from BD Post event location (e.g., "Mirpur 1 SO", "Dairy Farm SO", "Bogra HO")
-    and returns (post_office_dict, contact_dict).
+    Extracts and maps a BD Post event location (e.g., 'Mirpur 1', 'DHAKA AIRPORT SORTING OFFICE', 'Agrabad')
+    into a structured Post Office match with 4-tier fallback handling:
+    - Tier 1: Exact / Confident Sub-Office Match (with direct phone if available)
+    - Tier 2: Transit Hub (Airport Sorting / IMPC / Hub)
+    - Tier 3: Ambiguous Location (multiple matching districts)
+    - Tier 4: Unrecognized / None
     """
     _ensure_data_loaded()
     if not location_str or not isinstance(location_str, str):
         return None
 
-    cleaned = re.sub(r"\b(SO|HO|SPO|BO|TPO|GPO|Sorting Office|Post Office|Airport)\b", "", location_str, flags=re.IGNORECASE)
-    cleaned = cleaned.strip()
+    norm = location_str.strip().lower()
 
-    matches = search_post_offices(cleaned, limit=1)
-    if matches:
-        po = matches[0]
+    # Tier 2: Transit / Sorting Facilities
+    if any(hub in norm for hub in TRANSIT_HUBS):
+        return {
+            "tier": "transit_hub",
+            "facility": location_str.strip(),
+            "post_office": None,
+            "contact": None
+        }
+
+    cleaned = re.sub(r"\b(so|ho|spo|bo|tpo|gpo|tso|edso|post office|sub office|branch office)\b", "", norm, flags=re.I).strip()
+    cleaned = re.sub(r"[\-_/]+", " ", cleaned).strip()
+
+    # 1. Exact match on post_office name
+    for po in _POST_OFFICES:
+        po_name = po["post_office"].lower()
+        if norm == po_name or (cleaned and cleaned == po_name):
+            contact = get_fallback_contact_for_office(po)
+            return {"tier": "match", "post_office": po, "contact": contact}
+
+    # Mirpur sub-area heuristic (Mirpur 1, 2, 6, 10, 11, 12, 14 -> Mirpur TSO 1216)
+    if "mirpur" in norm:
+        for po in _POST_OFFICES:
+            if po["post_office"] == "Mirpur TSO" and po["district"] == "Dhaka":
+                contact = get_fallback_contact_for_office(po)
+                return {"tier": "match", "post_office": po, "contact": contact}
+
+    tokens = [t for t in re.split(r"\s+", cleaned) if t and t not in STOP_WORDS]
+
+    candidates = []
+    for po in _POST_OFFICES:
+        po_name = po["post_office"].lower()
+        thana = po["thana"].lower()
+
+        # Starts-with / exact token match
+        if tokens and any(po_name.startswith(t) or thana.startswith(t) for t in tokens):
+            candidates.append((5, po))
+        elif cleaned and cleaned in po_name:
+            candidates.append((4, po))
+        elif thana and cleaned and (cleaned == thana or cleaned in thana):
+            candidates.append((3, po))
+        elif tokens and any(t in po_name or t in thana for t in tokens):
+            candidates.append((2, po))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    best_score = candidates[0][0]
+    best_matches = [c[1] for c in candidates if c[0] == best_score]
+
+    if len(best_matches) == 1:
+        po = best_matches[0]
         contact = get_fallback_contact_for_office(po)
-        return po, contact
+        return {"tier": "match", "post_office": po, "contact": contact}
 
-    return None
+    dists = {m["district"] for m in best_matches}
+    if len(dists) > 1 and len(best_matches) > 3:
+        return {
+            "tier": "ambiguous",
+            "count": len(best_matches),
+            "query": location_str.strip(),
+            "post_office": None,
+            "contact": None
+        }
+
+    po = best_matches[0]
+    contact = get_fallback_contact_for_office(po)
+    return {"tier": "match", "post_office": po, "contact": contact}

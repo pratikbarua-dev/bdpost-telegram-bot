@@ -211,6 +211,7 @@ async def process_track_numbers(
                     local_tracking_number=local_num
                 )
                 display_event = latest_bdpost or latest_cainiao
+                loc = display_event.get("location", "") if display_event else ""
                 msg = format_status_message(
                     tracking_number, display_event,
                     label=label,
@@ -220,7 +221,7 @@ async def process_track_numbers(
                 )
                 await update.message.reply_text(
                     msg,
-                    reply_markup=get_parcel_inline_keyboard(tracking_number),
+                    reply_markup=get_parcel_inline_keyboard(tracking_number, location=loc),
                     parse_mode="HTML"
                 )
             elif cainiao_events:
@@ -233,6 +234,7 @@ async def process_track_numbers(
                     local_tracking_number=local_num
                 )
                 display_event = latest_cainiao
+                loc = display_event.get("location", "") if display_event else ""
                 msg = format_status_message(
                     tracking_number, display_event,
                     label=label,
@@ -242,7 +244,7 @@ async def process_track_numbers(
                 )
                 await update.message.reply_text(
                     msg,
-                    reply_markup=get_parcel_inline_keyboard(tracking_number),
+                    reply_markup=get_parcel_inline_keyboard(tracking_number, location=loc),
                     parse_mode="HTML"
                 )
             else:
@@ -255,6 +257,7 @@ async def process_track_numbers(
                     local_tracking_number=local_num
                 )
                 display_event = latest_bdpost
+                loc = display_event.get("location", "") if display_event else ""
                 msg = format_status_message(
                     tracking_number, display_event,
                     label=label,
@@ -264,7 +267,7 @@ async def process_track_numbers(
                 )
                 await update.message.reply_text(
                     msg,
-                    reply_markup=get_parcel_inline_keyboard(tracking_number),
+                    reply_markup=get_parcel_inline_keyboard(tracking_number, location=loc),
                     parse_mode="HTML"
                 )
 
@@ -330,6 +333,7 @@ async def process_status_numbers(
                     display_event = latest_cainiao or latest_bdpost
 
                 label = db.get_parcel_label(telegram_id, tracking_number) if telegram_id else None
+                loc = display_event.get("location", "") if display_event else ""
                 msg = format_status_message(
                     tracking_number,
                     display_event,
@@ -339,7 +343,7 @@ async def process_status_numbers(
                 )
                 await update.message.reply_text(
                     msg,
-                    reply_markup=get_parcel_inline_keyboard(tracking_number),
+                    reply_markup=get_parcel_inline_keyboard(tracking_number, location=loc),
                     parse_mode="HTML"
                 )
 

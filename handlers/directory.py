@@ -127,18 +127,23 @@ async def process_phone_report_submission(update: Update, context: ContextTypes.
     context.user_data.pop("state", None)
     postcode = context.user_data.pop("report_postcode", "Unknown")
     user = update.effective_user
+    db: Database = context.bot_data["db"]
 
     uid = user.id
     uname = f"@{user.username}" if user.username else "No username"
     fname = html.escape(user.full_name or "User")
+    clean_phone = submitted_text.strip()
+
+    # Update database immediately
+    db.update_post_office_phone(postcode, clean_phone, source=f"crowdsourced_by_{uid}")
 
     # Forward correction to Admin directly
     admin_msg = (
-        "📢 <b>Post Office Phone Correction Submitted</b>\n"
+        "📢 <b>Post Office Phone Contribution Submitted</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         f"📮 <b>Postcode:</b> <code>{postcode}</code>\n"
         f"👤 <b>Submitted By:</b> {fname} ({uname}) [ID: <code>{uid}</code>]\n"
-        f"📞 <b>Submitted Number:</b> <code>{html.escape(submitted_text.strip())}</code>\n"
+        f"📞 <b>Phone Number:</b> <code>{html.escape(clean_phone)}</code>\n"
         "━━━━━━━━━━━━━━━━━━━━"
     )
     try:
@@ -153,7 +158,7 @@ async def process_phone_report_submission(update: Update, context: ContextTypes.
     await update.message.reply_text(
         "🙏 <b>Thank You for Your Contribution!</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        f"Your submitted phone number for Postcode <code>{postcode}</code> has been received for verification.\n"
+        f"The phone number for Postcode <code>{postcode}</code> has been recorded and updated.\n"
         "━━━━━━━━━━━━━━━━━━━━",
         reply_markup=get_main_keyboard(),
         parse_mode="HTML"

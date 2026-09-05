@@ -60,10 +60,11 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
                     local_tracking_number=local_num,
                     header_title="🔄 <b>Updated Status</b>"
                 )
+                loc = display_event.get("location", "") if display_event else ""
                 try:
                     await query.edit_message_text(
                         msg,
-                        reply_markup=get_parcel_inline_keyboard(tracking_number),
+                        reply_markup=get_parcel_inline_keyboard(tracking_number, location=loc),
                         parse_mode="HTML"
                     )
                 except BadRequest as bre:
@@ -100,6 +101,11 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
 
     elif data.startswith("report_phone:"):
         await handle_report_phone_callback(update, context)
+
+    elif data.startswith("search_po:"):
+        location_query = data.split(":", 1)[1]
+        from handlers.directory import execute_postcode_search
+        await execute_postcode_search(update, context, location_query)
 
     elif data.startswith("stop:"):
         tracking_number = data.split(":", 1)[1]

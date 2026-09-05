@@ -24,20 +24,43 @@ def get_cancel_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 
-def get_parcel_inline_keyboard(tracking_number: str) -> InlineKeyboardMarkup:
+def get_parcel_inline_keyboard(tracking_number: str, location: str = "") -> InlineKeyboardMarkup:
     """
-    Inline action buttons for an individual parcel.
+    Inline action buttons for an individual parcel, dynamically offering
+    phone update or office lookup based on domestic location matching.
     """
-    buttons = [
-        [
-            InlineKeyboardButton("🔄 Refresh Status", callback_data=f"refresh:{tracking_number}"),
-            InlineKeyboardButton("✏️ Rename", callback_data=f"rename:{tracking_number}")
-        ],
-        [
-            InlineKeyboardButton("🛑 Stop Tracking", callback_data=f"stop:{tracking_number}"),
-            InlineKeyboardButton("🏠 Back to Home", callback_data="go_home")
-        ]
+    row1 = [
+        InlineKeyboardButton("🔄 Refresh Status", callback_data=f"refresh:{tracking_number}"),
+        InlineKeyboardButton("✏️ Rename", callback_data=f"rename:{tracking_number}")
     ]
+
+    middle_rows = []
+    if location:
+        from bdpost.directory import match_location_to_post_office
+        match_info = match_location_to_post_office(location)
+        if match_info:
+            if match_info.get("tier") in ["match", "exact"] and match_info.get("post_office"):
+                po = match_info["post_office"]
+                code = po.get("post_code", "")
+                if po.get("phone"):
+                    middle_rows.append([
+                        InlineKeyboardButton("⚠️ Report Wrong Number", callback_data=f"report_phone:{code}")
+                    ])
+                else:
+                    middle_rows.append([
+                        InlineKeyboardButton("➕ Add Office Phone", callback_data=f"report_phone:{code}")
+                    ])
+            elif match_info.get("tier") == "ambiguous":
+                middle_rows.append([
+                    InlineKeyboardButton("🔍 Find My Post Office", callback_data=f"search_po:{location.strip()}")
+                ])
+
+    bottom_row = [
+        InlineKeyboardButton("🛑 Stop Tracking", callback_data=f"stop:{tracking_number}"),
+        InlineKeyboardButton("🏠 Home", callback_data="go_home")
+    ]
+
+    buttons = [row1] + middle_rows + [bottom_row]
     return InlineKeyboardMarkup(buttons)
 
 

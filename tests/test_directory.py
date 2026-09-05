@@ -75,7 +75,8 @@ class TestDirectoryAndContacts(unittest.IsolatedAsyncioTestCase):
     def test_location_matcher(self):
         matched = match_location_to_post_office("Mirpur 1 SO")
         self.assertIsNotNone(matched)
-        po, contact = matched
+        self.assertEqual(matched["tier"], "match")
+        po = matched["post_office"]
         self.assertEqual(po["post_code"], "1216")
 
     async def test_postcode_command_execution(self):
