@@ -829,6 +829,10 @@ class Database:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(self._prep_sql("UPDATE shipments SET last_checked_at = ?, updated_at = ? WHERE primary_tracking_number = ?"), (now, now, tracking_number))
+            cursor.execute(self._prep_sql("""
+                UPDATE shipments SET last_checked_at = ?, updated_at = ?
+                WHERE id IN (SELECT shipment_id FROM shipment_tracking_numbers WHERE tracking_number = ?)
+            """), (now, now, tracking_number))
             cursor.execute(self._prep_sql("UPDATE trackings SET last_checked_at = ? WHERE tracking_number = ?"), (now, tracking_number))
             conn.commit()
 
@@ -1186,14 +1190,16 @@ class Database:
             """), (new_status, retry_count, next_dt, notification_id))
             conn.commit()
 
-    # -----------------------------------------------------------------
-    # Priority-Aware Dynamic Scheduler Methods
+    # Priority-Aware Dynamic Scheduler Methods (2x/day standard cadence)
     # -----------------------------------------------------------------
     def get_shipments_due_for_check(self, batch_size: int = 25) -> List[Dict[str, Any]]:
         now = datetime.datetime.now(datetime.timezone.utc)
-        hot_threshold = (now - datetime.timedelta(minutes=15)).isoformat()
-        warm_threshold = (now - datetime.timedelta(minutes=30)).isoformat()
-        cold_threshold = (now - datetime.timedelta(hours=2)).isoformat()
+        # HOT (new tracking numbers): every 6 hours (4x a day)
+        # WARM (active transit): every 12 hours (2x a day)
+        # COLD (dormant / awaiting handover): every 24 hours (1x a day)
+        hot_threshold = (now - datetime.timedelta(hours=6)).isoformat()
+        warm_threshold = (now - datetime.timedelta(hours=12)).isoformat()
+        cold_threshold = (now - datetime.timedelta(hours=24)).isoformat()
 
         with self._get_connection() as conn:
             cursor = conn.cursor()

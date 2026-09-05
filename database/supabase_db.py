@@ -777,11 +777,16 @@ class SupabaseDatabase:
             logger.debug("mark_notification_failed notice: %s", e)
 
     # -------------------------------------------------------------
-    # Priority-Aware Dynamic Scheduler Methods
+    # Priority-Aware Dynamic Scheduler Methods (2x/day standard cadence)
     # -------------------------------------------------------------
     def get_shipments_due_for_check(self, batch_size: int = 25) -> List[Dict]:
         now = datetime.datetime.now(datetime.timezone.utc)
-        hot_threshold = (now - datetime.timedelta(minutes=15)).isoformat()
+        # HOT (new tracking numbers): every 6 hours (4x a day)
+        # WARM (active transit): every 12 hours (2x a day)
+        # COLD (dormant / awaiting handover): every 24 hours (1x a day)
+        hot_threshold = (now - datetime.timedelta(hours=6)).isoformat()
+        warm_threshold = (now - datetime.timedelta(hours=12)).isoformat()
+        cold_threshold = (now - datetime.timedelta(hours=24)).isoformat()
         try:
             active_shipments = self.get_all_active_shipments()
             due = []
@@ -792,16 +797,16 @@ class SupabaseDatabase:
                     due.append(s)
                 elif priority == "HOT" and last_checked <= hot_threshold:
                     due.append(s)
-                elif priority == "WARM" and last_checked <= (now - datetime.timedelta(minutes=30)).isoformat():
+                elif priority == "WARM" and last_checked <= warm_threshold:
                     due.append(s)
-                elif priority == "COLD" and last_checked <= (now - datetime.timedelta(hours=2)).isoformat():
+                elif priority == "COLD" and last_checked <= cold_threshold:
                     due.append(s)
                 if len(due) >= batch_size:
                     break
-            return due if due else active_shipments[:batch_size]
+            return due if due else []
         except Exception as e:
             logger.error("get_shipments_due_for_check error: %s", e)
-            return self.get_all_active_shipments()[:batch_size]
+            return []
 
     def update_shipment_priority(self, shipment_id: int, priority: str) -> None:
         now = datetime.datetime.now(datetime.timezone.utc).isoformat()
