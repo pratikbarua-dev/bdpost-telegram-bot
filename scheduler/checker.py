@@ -30,12 +30,12 @@ async def check_all_trackings(context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("Starting priority check for %d due shipment(s)", len(due_shipments))
 
     # Bound concurrency with semaphore to protect Render memory and carrier endpoints
-    sem = asyncio.Semaphore(2)
+    sem = asyncio.Semaphore(1)
 
     for shipment in due_shipments:
         async with sem:
             await _process_single_shipment_check(context, db, shipment)
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(2.5)
 
     # -------------------------------------------------------------
     # 3. Check for Stale Shipments (10 days without updates)

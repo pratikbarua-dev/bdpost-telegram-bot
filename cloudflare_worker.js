@@ -95,7 +95,18 @@ export default {
         init.body = await request.arrayBuffer();
       }
 
-      const response = await fetch(targetUrl, init);
+      let response = await fetch(targetUrl, init);
+
+      // If Cainiao returned a WAF challenge, retry once with fresh headers
+      if (targetUrl.includes("cainiao.com")) {
+        const text = await response.clone().text();
+        if (text.includes("FAIL_SYS_USER_VALIDATE") || text.includes("RGV587_ERROR")) {
+          await new Promise((r) => setTimeout(r, 1200));
+          forwardHeaders.set("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0");
+          forwardHeaders.set("sec-ch-ua", '"Firefox";v="132"');
+          response = await fetch(targetUrl, { method: request.method, headers: forwardHeaders });
+        }
+      }
 
       const responseHeaders = new Headers(response.headers);
       responseHeaders.set("Access-Control-Allow-Origin", "*");

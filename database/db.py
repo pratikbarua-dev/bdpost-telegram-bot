@@ -238,6 +238,22 @@ class Database:
                 except Exception:
                     pass
 
+            # Prune any accidental keyword trackings
+            try:
+                cursor.execute(self._prep_sql("""
+                    DELETE FROM shipment_subscribers
+                    WHERE shipment_id IN (
+                        SELECT id FROM shipments
+                        WHERE primary_tracking_number IN ('START', 'TRACK', 'STOP', 'PARCEL', 'DHAKA', 'KISHORGANJ')
+                    );
+                """))
+                cursor.execute(self._prep_sql("""
+                    DELETE FROM shipments
+                    WHERE primary_tracking_number IN ('START', 'TRACK', 'STOP', 'PARCEL', 'DHAKA', 'KISHORGANJ');
+                """))
+            except Exception:
+                pass
+
             conn.commit()
             backend_type = f"PostgreSQL ({self.db_url.split('@')[-1]})" if self.is_postgres else f"SQLite ({self.db_path})"
             logger.info("Database initialized successfully using %s", backend_type)
