@@ -53,6 +53,10 @@ async def post_init(application: Application) -> None:
 
 def main() -> None:
     logger.info("Initializing Bangladesh Post Telegram Bot...")
+    if config.CF_PROXY_URL:
+        logger.info("Cloudflare Worker proxy active: %s", config.CF_PROXY_URL)
+    else:
+        logger.info("No Cloudflare Worker proxy configured (Direct carrier connection)")
 
     # Initialize Database: Supabase REST API (if SUPABASE_URL & SUPABASE_KEY set), PostgreSQL (if DATABASE_URL set), or SQLite
     if config.SUPABASE_URL and config.SUPABASE_KEY:

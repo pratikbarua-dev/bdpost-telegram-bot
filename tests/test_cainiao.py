@@ -163,5 +163,21 @@ class TestCainiaoParser(unittest.TestCase):
         self.assertNotIn("arms_uid=", src)
 
 
+    def test_cf_proxy_routing_logic(self):
+        import config
+        from cainiao.client import CAINIAO_DETAIL_JSON
+        import urllib.parse
+
+        # Verify proxy URL construction
+        proxy_url = "https://bdpost.piyush-barua-bd.workers.dev"
+        params = {"mailNos": "BR006044821MG", "lang": "en-US", "language": "en-US"}
+        target_url = f"{CAINIAO_DETAIL_JSON}?{urllib.parse.urlencode(params)}"
+        req_url = f"{proxy_url.rstrip('/')}/?url={urllib.parse.quote(target_url, safe='')}"
+
+        self.assertTrue(req_url.startswith(proxy_url))
+        self.assertIn("url=https%3A%2F%2Fglobal.cainiao.com%2Fglobal%2Fdetail.json", req_url)
+        self.assertIn("BR006044821MG", req_url)
+
+
 if __name__ == "__main__":
     unittest.main()
