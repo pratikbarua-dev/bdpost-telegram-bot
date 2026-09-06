@@ -73,6 +73,19 @@ export default {
         forwardHeaders.set("user-agent", DEFAULT_USER_AGENT);
       }
 
+      if (targetUrl.includes("cainiao.com")) {
+        if (!forwardHeaders.has("referer")) {
+          const mailNo = new URL(targetUrl).searchParams.get("mailNos") || "";
+          forwardHeaders.set("referer", `https://global.cainiao.com/newDetail.htm?mailNoList=${mailNo}&otherMailNoList=`);
+        }
+        forwardHeaders.set("sec-ch-ua", '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"');
+        forwardHeaders.set("sec-ch-ua-mobile", "?0");
+        forwardHeaders.set("sec-ch-ua-platform", '"Windows"');
+        forwardHeaders.set("sec-fetch-dest", "empty");
+        forwardHeaders.set("sec-fetch-mode", "cors");
+        forwardHeaders.set("sec-fetch-site", "same-origin");
+      }
+
       const init = {
         method: request.method,
         headers: forwardHeaders,

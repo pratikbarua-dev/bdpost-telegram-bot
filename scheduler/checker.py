@@ -122,10 +122,19 @@ async def _process_single_shipment_check(context: ContextTypes.DEFAULT_TYPE, db:
                 logger.error("Unexpected error checking Cainiao for %s: %s", num, e, exc_info=True)
 
     # -------------------------------------------------------------
-    # 2. Check Bangladesh Post across all numbers in chain (if enabled)
+    # 2. Check Bangladesh Post across valid postal numbers (if enabled)
     # -------------------------------------------------------------
     if bdpost_enabled:
-        for num in list(chain_numbers):
+        import re
+        # BDPost only accepts UPU S10 format (e.g., UG...MV, BR...MG) or BD-specific numbers
+        bdpost_targets = [
+            n for n in chain_numbers
+            if re.match(r"^[A-Z]{2}\d{9}[A-Z]{2}$", n) or n.startswith("BD") or n.endswith("BD")
+        ]
+        if not bdpost_targets and not (primary_number.startswith("CNG") or primary_number.startswith("AP")):
+            bdpost_targets = [primary_number]
+
+        for num in bdpost_targets:
             try:
                 logger.info("Checking Bangladesh Post for shipment %d (%s)", shipment_id, num)
                 html = await track_bdpost(num)

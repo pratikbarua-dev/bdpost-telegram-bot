@@ -113,7 +113,7 @@ def main() -> None:
             interval=5,
             first=5,
             name="outbox_dispatcher",
-            job_kwargs={"misfire_grace_time": 60}
+            job_kwargs={"max_instances": 2, "coalesce": True, "misfire_grace_time": 60}
         )
         logger.info("Scheduled outbox notification dispatcher every 5 seconds.")
     else:
