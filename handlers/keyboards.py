@@ -56,7 +56,8 @@ def get_parcel_inline_keyboard(tracking_number: str, location: str = "") -> Inli
                 ])
 
     bottom_row = [
-        InlineKeyboardButton("🛑 Stop Tracking", callback_data=f"stop:{tracking_number}"),
+        InlineKeyboardButton("✅ Mark as Delivered", callback_data=f"deliver_user:{tracking_number}"),
+        InlineKeyboardButton("🛑 Stop", callback_data=f"stop:{tracking_number}"),
         InlineKeyboardButton("🏠 Home", callback_data="go_home")
     ]
 

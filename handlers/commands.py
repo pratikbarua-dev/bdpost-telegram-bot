@@ -85,6 +85,63 @@ async def my_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     )
 
 
+async def delivered_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Allows a user to manually mark a parcel as delivered / received.
+    Usage: /delivered <tracking_number>
+    """
+    if not update.effective_user or not update.message:
+        return
+
+    await cleanup_previous_messages(update, context)
+    telegram_id = update.effective_user.id
+    db: Database = context.bot_data["db"]
+
+    if not context.args:
+        trackings = db.get_user_active_trackings(telegram_id)
+        if not trackings:
+            await update.message.reply_text(
+                "⚠️ You don't have any active parcels to mark as delivered.",
+                reply_markup=get_main_keyboard()
+            )
+            return
+
+        context.user_data["state"] = "waiting_for_delivered"
+        prompt = await update.message.reply_text(
+            "✅ <b>Mark as Delivered:</b>\n"
+            "Please send the tracking number of the parcel you received:",
+            reply_markup=get_cancel_keyboard(),
+            parse_mode="HTML"
+        )
+        record_prompt_message(context, prompt.message_id)
+        return
+
+    valid_numbers, invalid = extract_tracking_numbers(context.args)
+    if not valid_numbers:
+        await update.message.reply_text("⚠️ Please provide a valid tracking number.", reply_markup=get_main_keyboard())
+        return
+
+    for num in valid_numbers:
+        shipment = db.get_shipment_by_tracking_number(num)
+        if shipment:
+            db.deactivate_shipment_on_delivery(shipment["id"])
+            await update.message.reply_text(
+                f"🎉 <b>Parcel Marked as Delivered!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"📦 <code>{html.escape(num)}</code> has been marked as received.\n"
+                f"Active tracking has been stopped.\n"
+                f"━━━━━━━━━━━━━━━━━━━━",
+                reply_markup=get_main_keyboard(),
+                parse_mode="HTML"
+            )
+        else:
+            await update.message.reply_text(
+                f"⚠️ Tracking number <code>{html.escape(num)}</code> was not found in active parcels.",
+                reply_markup=get_main_keyboard(),
+                parse_mode="HTML"
+            )
+
+
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_user or not update.message:
         return

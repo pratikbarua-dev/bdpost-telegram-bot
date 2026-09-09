@@ -8,7 +8,9 @@ import config
 from database.db import Database
 from handlers.start import start_handler, help_handler
 from handlers.tracking import track_command, status_command
-from handlers.commands import my_command, stop_command, name_command
+    from handlers.commands import my_command, stop_command, name_command, delivered_command
+    application.add_handler(CommandHandler("delivered", delivered_command))
+    application.add_handler(CommandHandler("received", delivered_command))
 from handlers.feedback import feedback_command
 from handlers.directory import postcode_command
 from handlers.admin import admin_command

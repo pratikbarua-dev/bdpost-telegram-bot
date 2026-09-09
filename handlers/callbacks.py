@@ -107,6 +107,27 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         from handlers.directory import execute_postcode_search
         await execute_postcode_search(update, context, location_query)
 
+    elif data.startswith("deliver_user:"):
+        import html
+        tracking_number = data.split(":", 1)[1]
+        shipment = db.get_shipment_by_tracking_number(tracking_number)
+        if shipment:
+            db.deactivate_shipment_on_delivery(shipment["id"])
+            await query.edit_message_text(
+                f"🎉 <b>Parcel Marked as Delivered!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"📦 <code>{html.escape(tracking_number)}</code> has been marked as received and archived.\n"
+                f"You will no longer receive notifications for this parcel.\n"
+                f"━━━━━━━━━━━━━━━━━━━━",
+                reply_markup=get_main_keyboard(),
+                parse_mode="HTML"
+            )
+        else:
+            await query.edit_message_text(
+                f"⚠️ Tracking number <code>{html.escape(tracking_number)}</code> was not found.",
+                parse_mode="HTML"
+            )
+
     elif data.startswith("stop:"):
         tracking_number = data.split(":", 1)[1]
         stopped = db.stop_tracking(telegram_id, tracking_number)

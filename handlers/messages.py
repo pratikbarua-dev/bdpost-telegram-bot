@@ -137,6 +137,14 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await stop_command(update, context)
         return
 
+    if state == "waiting_for_delivered":
+        await cleanup_previous_messages(update, context)
+        context.user_data.pop("state", None)
+        context.args = text.split()
+        from handlers.commands import delivered_command
+        await delivered_command(update, context)
+        return
+
     if state == "waiting_for_rename":
         await cleanup_previous_messages(update, context)
         context.user_data.pop("state", None)
