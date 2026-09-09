@@ -783,21 +783,61 @@ class Database:
             )
 
     def get_user_active_trackings(self, telegram_id: int) -> List[Dict]:
-        shipments = self.get_user_active_shipments(telegram_id)
-        result = []
-        for s in shipments:
-            result.append({
-                "tracking_number": s["primary_tracking_number"],
-                "label": s.get("label"),
-                "cainiao_enabled": s["cainiao_enabled"],
-                "bdpost_enabled": s["bdpost_enabled"],
-                "handover_detected": s["handover_detected"],
-                "local_tracking_number": s.get("local_tracking_number"),
-                "tracking_chain": s.get("tracking_chain", []),
-                "created_at": s["created_at"],
-                "last_checked_at": s["last_checked_at"]
-            })
-        return result
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(self._prep_sql("""
+                SELECT 
+                    s.id as shipment_id,
+                    s.primary_tracking_number as tracking_number,
+                    s.cainiao_enabled,
+                    s.bdpost_enabled,
+                    s.handover_detected,
+                    s.local_tracking_number,
+                    s.created_at,
+                    s.last_checked_at,
+                    sub.label,
+                    (
+                        SELECT e.source FROM events e
+                        WHERE e.tracking_number IN (
+                            SELECT stn.tracking_number FROM shipment_tracking_numbers stn WHERE stn.shipment_id = s.id
+                            UNION SELECT s.primary_tracking_number
+                        )
+                        ORDER BY (CASE WHEN e.source = 'bdpost' THEN 1 ELSE 0 END) DESC, e.id DESC
+                        LIMIT 1
+                    ) as latest_source,
+                    (
+                        SELECT e.status FROM events e
+                        WHERE e.tracking_number IN (
+                            SELECT stn.tracking_number FROM shipment_tracking_numbers stn WHERE stn.shipment_id = s.id
+                            UNION SELECT s.primary_tracking_number
+                        )
+                        ORDER BY (CASE WHEN e.source = 'bdpost' THEN 1 ELSE 0 END) DESC, e.id DESC
+                        LIMIT 1
+                    ) as latest_status,
+                    (
+                        SELECT e.location FROM events e
+                        WHERE e.tracking_number IN (
+                            SELECT stn.tracking_number FROM shipment_tracking_numbers stn WHERE stn.shipment_id = s.id
+                            UNION SELECT s.primary_tracking_number
+                        )
+                        ORDER BY (CASE WHEN e.source = 'bdpost' THEN 1 ELSE 0 END) DESC, e.id DESC
+                        LIMIT 1
+                    ) as latest_location,
+                    (
+                        SELECT e.event_date FROM events e
+                        WHERE e.tracking_number IN (
+                            SELECT stn.tracking_number FROM shipment_tracking_numbers stn WHERE stn.shipment_id = s.id
+                            UNION SELECT s.primary_tracking_number
+                        )
+                        ORDER BY (CASE WHEN e.source = 'bdpost' THEN 1 ELSE 0 END) DESC, e.id DESC
+                        LIMIT 1
+                    ) as latest_event_date
+                FROM shipments s
+                JOIN shipment_subscribers sub ON s.id = sub.shipment_id
+                WHERE sub.telegram_id = ? AND sub.active = 1 AND s.is_delivered = 0
+                ORDER BY s.id DESC;
+            """), (telegram_id,))
+            return [dict(r) for r in cursor.fetchall()]
 
     def get_subscribers_with_labels_for_tracking(self, tracking_number: str) -> List[Dict]:
         shipment = self.get_shipment_by_tracking_number(tracking_number)

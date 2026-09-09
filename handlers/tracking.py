@@ -2,6 +2,7 @@ import asyncio
 import logging
 from typing import Dict, Any, List, Tuple, Optional
 from telegram import Update
+from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
 from database.db import Database
@@ -56,19 +57,38 @@ async def discover_and_fetch_chain(
         hops += 1
         current_num = chain_queue.pop(0)
 
-        # 1. Fetch Cainiao
-        if current_num not in checked_cainiao:
+        tasks = []
+        is_cainiao_candidate = current_num not in checked_cainiao
+        # Only query BD Post if it's UPU format or local BD format (skip pure internal CNG/AP)
+        is_bdpost_candidate = current_num not in checked_bdpost and not (current_num.startswith("CNG") or current_num.startswith("AP"))
+
+        if is_cainiao_candidate:
             checked_cainiao.add(current_num)
-            try:
-                cainiao_data = await track_cainiao(current_num)
-                events = parse_cainiao(cainiao_data)
+            tasks.append(("cainiao", track_cainiao(current_num)))
+
+        if is_bdpost_candidate:
+            checked_bdpost.add(current_num)
+            tasks.append(("bdpost", track_bdpost(current_num)))
+
+        if not tasks:
+            continue
+
+        results = await asyncio.gather(*[t[1] for t in tasks], return_exceptions=True)
+
+        for idx, (carrier, _) in enumerate(tasks):
+            res = results[idx]
+            if isinstance(res, Exception):
+                logger.debug("%s fetch failed for %s: %s", carrier, current_num, res)
+                continue
+
+            if carrier == "cainiao" and isinstance(res, dict):
+                events = parse_cainiao(res)
                 if events:
                     for e in events:
                         e["tracking_number"] = current_num
                     all_cainiao_events.extend(events)
 
-                # Discover linked numbers from Cainiao
-                discovered_links = extract_linked_cainiao(cainiao_data, current_num)
+                discovered_links = extract_linked_cainiao(res, current_num)
                 for link in discovered_links:
                     linked_num = link["tracking_number"]
                     if linked_num not in all_chain_numbers:
@@ -83,15 +103,9 @@ async def discover_and_fetch_chain(
                                 num_type=link.get("type", "linked"),
                                 discovered_from=current_num
                             )
-            except Exception as e:
-                logger.debug("Cainiao fetch for %s in chain: %s", current_num, e)
 
-        # 2. Fetch Bangladesh Post
-        if current_num not in checked_bdpost:
-            checked_bdpost.add(current_num)
-            try:
-                bdpost_html = await track_bdpost(current_num)
-                b_events = parse_bdpost(bdpost_html)
+            elif carrier == "bdpost" and isinstance(res, str):
+                b_events = parse_bdpost(res)
                 if b_events:
                     for be in b_events:
                         be["tracking_number"] = current_num
@@ -99,8 +113,6 @@ async def discover_and_fetch_chain(
                     local_tracking_number = current_num
                     if shipment_id is not None:
                         db.update_shipment_status(shipment_id, local_tracking_number=current_num)
-            except Exception as e:
-                logger.debug("BD Post fetch for %s in chain: %s", current_num, e)
 
     # Sort events chronologically
     all_cainiao_events.sort(key=lambda x: x.get("event_date", ""))
@@ -124,6 +136,12 @@ async def process_track_numbers(
 ) -> None:
     if not update.effective_user or not update.message:
         return
+
+    # Trigger instant typing feedback
+    try:
+        await update.message.chat.send_action(ChatAction.TYPING)
+    except Exception:
+        pass
 
     telegram_id = update.effective_user.id
     db: Database = context.bot_data["db"]
@@ -290,6 +308,11 @@ async def process_status_numbers(
 ) -> None:
     if not update.message:
         return
+
+    try:
+        await update.message.chat.send_action(ChatAction.TYPING)
+    except Exception:
+        pass
 
     telegram_id = update.effective_user.id if update.effective_user else None
     db: Database = context.bot_data["db"]

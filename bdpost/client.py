@@ -67,37 +67,11 @@ async def _fetch_endpoint(client: httpx.AsyncClient, url: str, tracking_number: 
 
 async def track(tracking_number: str) -> str:
     """
-    Queries Bangladesh Post tracking.
-    Attempts search1.php (International / General) first, and if no table is found,
-    checks search2.php (Domestic / Bangladesh-to-Bangladesh).
+    Queries Bangladesh Post tracking via search1.php (Primary tracking endpoint).
     """
-    from bdpost.parser import parse_tracking_response
-
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            # First attempt: search1.php
-            try:
-                res1 = await _fetch_endpoint(client, SEARCH1_URL, tracking_number)
-                events1 = parse_tracking_response(res1)
-                if events1:
-                    return res1
-            except Exception as e:
-                logger.debug("search1.php attempt failed or returned no events for %s: %s", tracking_number, e)
-                res1 = ""
-
-            # Second attempt: search2.php (Domestic)
-            try:
-                res2 = await _fetch_endpoint(client, SEARCH2_URL, tracking_number)
-                events2 = parse_tracking_response(res2)
-                if events2:
-                    return res2
-            except Exception as e:
-                logger.debug("search2.php attempt failed for %s: %s", tracking_number, e)
-                res2 = ""
-
-            # If neither returned events, return whichever response was received (or res1/res2)
-            return res1 or res2 or ""
-
+        async with httpx.AsyncClient(timeout=18.0) as client:
+            return await _fetch_endpoint(client, SEARCH1_URL, tracking_number)
     except httpx.TimeoutException:
         logger.warning("Bangladesh Post timeout for %s", tracking_number)
         raise BangladeshPostUnavailableError("Bangladesh Post tracking is temporarily unavailable")

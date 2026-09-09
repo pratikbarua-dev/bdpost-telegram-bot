@@ -46,15 +46,23 @@ async def my_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     for idx, item in enumerate(trackings, 1):
         num = item["tracking_number"]
         label = item.get("label")
-        latest_event = db.get_latest_event_for_tracking(num)
+        status = item.get("latest_status")
+        loc = item.get("latest_location")
+        src_raw = item.get("latest_source")
+
+        # Fallback to single get_latest_event if not populated by batch
+        if not status:
+            latest_event = db.get_latest_event_for_tracking(num)
+            if latest_event:
+                status = latest_event.get("status")
+                loc = latest_event.get("location")
+                src_raw = latest_event.get("source")
 
         title = f"<b>{label}</b> (<code>{num}</code>)" if label else f"<code>{num}</code>"
 
-        if latest_event:
-            loc = latest_event.get("location", "")
+        if status:
             loc_str = f"📍 {loc}\n   " if loc else ""
-            status = latest_event.get("status", "N/A")
-            src = "🇧🇩 BD Post" if latest_event.get("source") == "bdpost" else "🚚 Cainiao"
+            src = "🇧🇩 BD Post" if src_raw == "bdpost" else "🚚 Cainiao"
             message_lines.append(f"{idx}. {title} [{src}]\n   {loc_str}📌 {status}\n")
         else:
             created_at_str = item.get("created_at", "")

@@ -42,6 +42,14 @@ async def postcode_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 async def execute_postcode_search(update: Update, context: ContextTypes.DEFAULT_TYPE, query: str) -> None:
+    # Immediate typing feedback
+    try:
+        if update.effective_chat:
+            from telegram.constants import ChatAction
+            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    except Exception:
+        pass
+
     results = search_post_offices(query, limit=5)
 
     if not results:
