@@ -384,10 +384,43 @@ class SupabaseDatabase:
 
     def get_user_active_trackings(self, telegram_id: int) -> List[Dict]:
         shipments = self.get_user_active_shipments(telegram_id)
+        if not shipments:
+            return []
+
+        # Batch fetch latest events for all user shipments in 1 single Supabase REST call
+        all_numbers = []
+        for s in shipments:
+            all_numbers.append(s["primary_tracking_number"])
+            for t in s.get("tracking_chain", []):
+                all_numbers.append(t["tracking_number"])
+
+        events_by_num = {}
+        if all_numbers:
+            try:
+                in_filter = f"({','.join(set(all_numbers))})"
+                res = self._req("GET", f"/events?tracking_number=in.{in_filter}&select=*&order=id.desc")
+                for e in res.json():
+                    num = e["tracking_number"]
+                    if num not in events_by_num:
+                        events_by_num[num] = e
+                    elif e.get("source") == "bdpost" and events_by_num[num].get("source") != "bdpost":
+                        events_by_num[num] = e
+            except Exception as ex:
+                logger.debug("Batch event fetch notice: %s", ex)
+
         result = []
         for s in shipments:
+            p_num = s["primary_tracking_number"]
+            # Look for latest event in primary number or chain
+            latest_e = events_by_num.get(p_num)
+            if not latest_e:
+                for t in s.get("tracking_chain", []):
+                    if t["tracking_number"] in events_by_num:
+                        latest_e = events_by_num[t["tracking_number"]]
+                        break
+
             result.append({
-                "tracking_number": s["primary_tracking_number"],
+                "tracking_number": p_num,
                 "label": s.get("label"),
                 "cainiao_enabled": s["cainiao_enabled"],
                 "bdpost_enabled": s["bdpost_enabled"],
@@ -395,7 +428,11 @@ class SupabaseDatabase:
                 "local_tracking_number": s.get("local_tracking_number"),
                 "tracking_chain": s.get("tracking_chain", []),
                 "created_at": s["created_at"],
-                "last_checked_at": s["last_checked_at"]
+                "last_checked_at": s["last_checked_at"],
+                "latest_source": latest_e.get("source") if latest_e else None,
+                "latest_status": latest_e.get("status") if latest_e else None,
+                "latest_location": latest_e.get("location") if latest_e else None,
+                "latest_event_date": latest_e.get("event_date") if latest_e else None,
             })
         return result
 
