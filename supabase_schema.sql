@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS users (
 ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_banned INT DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_broadcast_at TEXT;
 
 -- 2. Shipments Table (Core Physical Shipment Entity)
 CREATE TABLE IF NOT EXISTS shipments (
