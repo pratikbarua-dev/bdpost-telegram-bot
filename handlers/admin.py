@@ -128,10 +128,11 @@ async def show_admin_dashboard(update: Update, context: ContextTypes.DEFAULT_TYP
             InlineKeyboardButton("📦 All Parcels", callback_data="admin_parcels:0")
         ],
         [
-            InlineKeyboardButton("🔄 Trigger Poll Now", callback_data="admin_poll"),
-            InlineKeyboardButton("🌐 Test Connections", callback_data="admin_test")
+            InlineKeyboardButton("📢 Broadcast Message", callback_data="admin_broadcast_prompt"),
+            InlineKeyboardButton("🔄 Trigger Poll", callback_data="admin_poll")
         ],
         [
+            InlineKeyboardButton("🌐 Test Connections", callback_data="admin_test"),
             InlineKeyboardButton("🔄 Refresh Stats", callback_data="admin_stats")
         ]
     ]
@@ -552,41 +553,106 @@ async def handle_admin_test_connections(update: Update, context: ContextTypes.DE
     await status_msg.edit_text(report, parse_mode="HTML")
 
 
+async def handle_admin_broadcast_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    context.user_data["state"] = "waiting_for_admin_broadcast"
+    from handlers.keyboards import get_cancel_keyboard
+    from handlers.cleanup import record_prompt_message
+
+    text = (
+        "📢 <b>Compose Broadcast Announcement</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Please send the message you want to broadcast to <b>all registered users</b>.\n\n"
+        "✨ <b>HTML Formatting Supported:</b>\n"
+        "• <code>&lt;b&gt;Bold Text&lt;/b&gt;</code>\n"
+        "• <code>&lt;i&gt;Italic Text&lt;/i&gt;</code>\n"
+        "• <code>&lt;code&gt;Code / Monospace&lt;/code&gt;</code>\n"
+        "• <code>&lt;a href='https://...'&gt;Hyperlinks&lt;/a&gt;</code>\n"
+        "• Emojis and clean multiline text\n\n"
+        "You will be shown a <b>Live Preview</b> with a confirmation button before anything is sent."
+    )
+    if update.callback_query:
+        prompt = await update.callback_query.message.reply_text(
+            text, reply_markup=get_cancel_keyboard(), parse_mode="HTML"
+        )
+    else:
+        prompt = await update.message.reply_text(
+            text, reply_markup=get_cancel_keyboard(), parse_mode="HTML"
+        )
+    record_prompt_message(context, prompt.message_id)
+
+
+async def handle_admin_broadcast_preview(update: Update, context: ContextTypes.DEFAULT_TYPE, db: Database, raw_text: str) -> None:
+    context.user_data.pop("state", None)
+    context.user_data["broadcast_payload"] = raw_text.strip()
+    uids = db.get_all_registered_telegram_ids()
+    total = len(uids)
+
+    formatted_msg = (
+        "📢 <b>Announcement Preview:</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"{raw_text.strip()}\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"👥 <b>Target Audience:</b> {total} registered users\n\n"
+        "<i>Ready to send? Tap '🚀 Confirm & Send' below:</i>"
+    )
+    keyboard = [
+        [
+            InlineKeyboardButton(f"🚀 Confirm & Send to {total} Users", callback_data="admin_broadcast_confirm"),
+            InlineKeyboardButton("❌ Cancel", callback_data="admin_broadcast_cancel")
+        ]
+    ]
+    try:
+        await update.message.reply_text(formatted_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    except Exception as e:
+        await update.message.reply_text(
+            f"⚠️ <b>HTML Formatting Error:</b> <code>{html.escape(str(e))}</code>\n\n"
+            "Please verify that all opening tags (like <code>&lt;b&gt;</code>) have matching closing tags (<code>&lt;/b&gt;</code>).",
+            parse_mode="HTML"
+        )
+
+
 async def handle_admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE, db: Database, broadcast_text: str) -> None:
     uids = db.get_all_registered_telegram_ids()
     total = len(uids)
     if not total:
-        await update.message.reply_text("No users registered to broadcast to.", parse_mode="HTML")
+        if update.callback_query:
+            await update.callback_query.edit_message_text("No users registered to broadcast to.")
+        else:
+            await update.message.reply_text("No users registered to broadcast to.")
         return
 
-    progress = await update.message.reply_text(f"📢 Starting broadcast to {total} users...", parse_mode="HTML")
+    if update.callback_query:
+        progress = await update.callback_query.edit_message_text(f"📢 Starting broadcast to {total} users...", parse_mode="HTML")
+    else:
+        progress = await update.message.reply_text(f"📢 Starting broadcast to {total} users...", parse_mode="HTML")
+
     success_cnt = 0
     failed_cnt = 0
 
     msg = (
         "📢 <b>System Announcement</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        f"{html.escape(broadcast_text.strip())}\n"
+        f"{broadcast_text.strip()}\n"
         "━━━━━━━━━━━━━━━━━━━━"
     )
 
     for uid in uids:
         try:
-            await context.bot.send_message(chat_id=uid, text=msg, parse_mode="HTML")
+            await context.bot.send_message(chat_id=uid, text=msg, parse_mode="HTML", disable_web_page_preview=True)
             success_cnt += 1
         except Exception:
             failed_cnt += 1
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.04)
 
-    await progress.edit_text(
+    report_text = (
         f"✅ <b>Broadcast Completed!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"📤 Total Users: <b>{total}</b>\n"
         f"🟢 Delivered: <b>{success_cnt}</b>\n"
         f"🔴 Failed/Blocked: <b>{failed_cnt}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━",
-        parse_mode="HTML"
+        f"━━━━━━━━━━━━━━━━━━━━"
     )
+    await progress.edit_text(report_text, parse_mode="HTML")
 
 
 # ---------------------------------------------------------------------
@@ -625,6 +691,17 @@ async def admin_callback_router(update: Update, context: ContextTypes.DEFAULT_TY
     elif data.startswith("admin_parcel:"):
         pnum = data.split(":", 1)[1]
         await show_admin_parcel_details(update, context, db, tracking_number=pnum, edit=True)
+    elif data == "admin_broadcast_prompt":
+        await handle_admin_broadcast_prompt(update, context)
+    elif data == "admin_broadcast_confirm":
+        payload = context.user_data.pop("broadcast_payload", "")
+        if payload:
+            await handle_admin_broadcast(update, context, db, payload)
+        else:
+            await query.edit_message_text("⚠️ Broadcast payload expired. Please try again.")
+    elif data == "admin_broadcast_cancel":
+        context.user_data.pop("broadcast_payload", None)
+        await show_admin_dashboard(update, context, db, edit=True)
     elif data == "admin_poll":
         await handle_admin_trigger_poll(update, context, db)
     elif data == "admin_test":

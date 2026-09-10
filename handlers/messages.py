@@ -145,6 +145,12 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await delivered_command(update, context)
         return
 
+    if state == "waiting_for_admin_broadcast":
+        await cleanup_previous_messages(update, context)
+        from handlers.admin import handle_admin_broadcast_preview
+        await handle_admin_broadcast_preview(update, context, db, text)
+        return
+
     if state == "waiting_for_rename":
         await cleanup_previous_messages(update, context)
         context.user_data.pop("state", None)
