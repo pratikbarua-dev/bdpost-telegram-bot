@@ -210,6 +210,26 @@ class Database:
                 );
             """))
 
+            # 10. broadcast_campaigns & user_broadcast_logs table
+            cursor.execute(self._prep_sql("""
+                CREATE TABLE IF NOT EXISTS broadcast_campaigns (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    message_text TEXT NOT NULL,
+                    is_active INTEGER DEFAULT 1,
+                    cooldown_hours INTEGER DEFAULT 48,
+                    created_at TEXT NOT NULL
+                );
+            """))
+            cursor.execute(self._prep_sql("""
+                CREATE TABLE IF NOT EXISTS user_broadcast_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    telegram_id BIGINT NOT NULL,
+                    campaign_id INTEGER,
+                    sent_at TEXT NOT NULL,
+                    UNIQUE(telegram_id, campaign_id)
+                );
+            """))
+
             cursor.execute(self._prep_sql("CREATE INDEX IF NOT EXISTS idx_stn_number ON shipment_tracking_numbers(tracking_number);"))
             cursor.execute(self._prep_sql("CREATE INDEX IF NOT EXISTS idx_stn_shipment ON shipment_tracking_numbers(shipment_id);"))
             cursor.execute(self._prep_sql("CREATE INDEX IF NOT EXISTS idx_subs_user ON shipment_subscribers(telegram_id, active);"))
@@ -220,7 +240,7 @@ class Database:
             cursor.execute(self._prep_sql("CREATE INDEX IF NOT EXISTS idx_po_district ON post_offices(district);"))
 
             # Automatic Schema Migrations for Users, Shipments & Subscribers tables
-            for col, col_def in [("username", "TEXT"), ("full_name", "TEXT"), ("is_banned", "INTEGER DEFAULT 0"), ("updated_at", "TEXT")]:
+            for col, col_def in [("username", "TEXT"), ("full_name", "TEXT"), ("is_banned", "INTEGER DEFAULT 0"), ("last_broadcast_at", "TEXT"), ("updated_at", "TEXT")]:
                 try:
                     cursor.execute(self._prep_sql(f"ALTER TABLE users ADD COLUMN {col} {col_def};"))
                 except Exception:
@@ -1326,18 +1346,32 @@ class Database:
             conn.commit()
             return cursor.rowcount > 0
 
-    def get_post_offices_by_query(self, query: str, limit: int = 15) -> List[Dict[str, Any]]:
-        q = f"%{query.strip()}%"
+    def get_broadcast_target_user_ids(self, cooldown_hours: int = 48) -> List[int]:
+        """
+        Returns list of telegram_ids eligible for broadcast, respecting the cooldown window
+        (e.g., skips anyone who received a broadcast in the last 48 hours or 7 days).
+        """
+        now = datetime.datetime.now(datetime.timezone.utc)
+        threshold = (now - datetime.timedelta(hours=cooldown_hours)).isoformat()
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(self._prep_sql("""
-                SELECT * FROM post_offices
-                WHERE post_code LIKE ?
-                   OR post_office LIKE ?
-                   OR thana LIKE ?
-                   OR district LIKE ?
-                ORDER BY district ASC, post_office ASC
-                LIMIT ?;
-            """), (q, q, q, q, limit))
-            return [dict(r) for r in cursor.fetchall()]
+                SELECT telegram_id
+                FROM users
+                WHERE is_banned = 0
+                  AND (last_broadcast_at IS NULL OR last_broadcast_at <= ?)
+            """), (threshold,))
+            return [row["telegram_id"] for row in cursor.fetchall()]
+
+    def record_user_broadcast_sent(self, telegram_id: int) -> None:
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(self._prep_sql("""
+                UPDATE users
+                SET last_broadcast_at = ?
+                WHERE telegram_id = ?;
+            """), (now, telegram_id))
+            conn.commit()
+
 

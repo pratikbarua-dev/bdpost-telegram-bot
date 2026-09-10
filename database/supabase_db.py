@@ -858,3 +858,26 @@ class SupabaseDatabase:
             self._req("PATCH", f"/shipments?id=eq.{shipment_id}", json={"priority": priority, "updated_at": now})
         except Exception as e:
             logger.error("update_shipment_priority error: %s", e)
+
+    def get_broadcast_target_user_ids(self, cooldown_hours: int = 48) -> List[int]:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        threshold = (now - datetime.timedelta(hours=cooldown_hours)).isoformat()
+        try:
+            res = self._req("GET", "/users?is_banned=eq.0&select=telegram_id,last_broadcast_at")
+            eligible = []
+            for u in res.json():
+                lba = u.get("last_broadcast_at")
+                if not lba or lba <= threshold:
+                    eligible.append(u["telegram_id"])
+            return eligible
+        except Exception as e:
+            logger.error("get_broadcast_target_user_ids error: %s", e)
+            return self.get_all_registered_telegram_ids()
+
+    def record_user_broadcast_sent(self, telegram_id: int) -> None:
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        try:
+            self._req("PATCH", f"/users?telegram_id=eq.{telegram_id}", json={"last_broadcast_at": now})
+        except Exception as e:
+            logger.debug("record_user_broadcast_sent notice: %s", e)
+

@@ -584,20 +584,29 @@ async def handle_admin_broadcast_prompt(update: Update, context: ContextTypes.DE
 async def handle_admin_broadcast_preview(update: Update, context: ContextTypes.DEFAULT_TYPE, db: Database, raw_text: str) -> None:
     context.user_data.pop("state", None)
     context.user_data["broadcast_payload"] = raw_text.strip()
-    uids = db.get_all_registered_telegram_ids()
-    total = len(uids)
+    uids_all = db.get_all_registered_telegram_ids()
+    uids_48h = db.get_broadcast_target_user_ids(cooldown_hours=48)
+    uids_7d = db.get_broadcast_target_user_ids(cooldown_hours=168)
 
     formatted_msg = (
         "📢 <b>Announcement Preview:</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         f"{raw_text.strip()}\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        f"👥 <b>Target Audience:</b> {total} registered users\n\n"
-        "<i>Ready to send? Tap '🚀 Confirm & Send' below:</i>"
+        f"👥 <b>Total Registered:</b> {len(uids_all)} users\n"
+        f"⏳ <b>Eligible (48h Cooldown):</b> {len(uids_48h)} users\n"
+        f"🗓️ <b>Eligible (7-Day Cooldown):</b> {len(uids_7d)} users\n\n"
+        "<i>Select target audience cooldown to send:</i>"
     )
     keyboard = [
         [
-            InlineKeyboardButton(f"🚀 Confirm & Send to {total} Users", callback_data="admin_broadcast_confirm"),
+            InlineKeyboardButton(f"🚀 Send (48h Cooldown: {len(uids_48h)})", callback_data="admin_broadcast_confirm:48")
+        ],
+        [
+            InlineKeyboardButton(f"🗓️ 7-Day Cooldown ({len(uids_7d)})", callback_data="admin_broadcast_confirm:168"),
+            InlineKeyboardButton(f"⚡ Force ALL ({len(uids_all)})", callback_data="admin_broadcast_confirm:0")
+        ],
+        [
             InlineKeyboardButton("❌ Cancel", callback_data="admin_broadcast_cancel")
         ]
     ]
@@ -611,20 +620,26 @@ async def handle_admin_broadcast_preview(update: Update, context: ContextTypes.D
         )
 
 
-async def handle_admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE, db: Database, broadcast_text: str) -> None:
-    uids = db.get_all_registered_telegram_ids()
+async def handle_admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE, db: Database, broadcast_text: str, cooldown_hours: int = 48) -> None:
+    if cooldown_hours > 0:
+        uids = db.get_broadcast_target_user_ids(cooldown_hours=cooldown_hours)
+    else:
+        uids = db.get_all_registered_telegram_ids()
+
     total = len(uids)
     if not total:
+        msg = "No eligible users found (all users may have received an update recently within the cooldown window)."
         if update.callback_query:
-            await update.callback_query.edit_message_text("No users registered to broadcast to.")
+            await update.callback_query.edit_message_text(msg)
         else:
-            await update.message.reply_text("No users registered to broadcast to.")
+            await update.message.reply_text(msg)
         return
 
+    progress_text = f"📢 Starting broadcast to {total} eligible users..."
     if update.callback_query:
-        progress = await update.callback_query.edit_message_text(f"📢 Starting broadcast to {total} users...", parse_mode="HTML")
+        progress = await update.callback_query.edit_message_text(progress_text, parse_mode="HTML")
     else:
-        progress = await update.message.reply_text(f"📢 Starting broadcast to {total} users...", parse_mode="HTML")
+        progress = await update.message.reply_text(progress_text, parse_mode="HTML")
 
     success_cnt = 0
     failed_cnt = 0
@@ -639,6 +654,7 @@ async def handle_admin_broadcast(update: Update, context: ContextTypes.DEFAULT_T
     for uid in uids:
         try:
             await context.bot.send_message(chat_id=uid, text=msg, parse_mode="HTML", disable_web_page_preview=True)
+            db.record_user_broadcast_sent(uid)
             success_cnt += 1
         except Exception:
             failed_cnt += 1
@@ -647,9 +663,10 @@ async def handle_admin_broadcast(update: Update, context: ContextTypes.DEFAULT_T
     report_text = (
         f"✅ <b>Broadcast Completed!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📤 Total Users: <b>{total}</b>\n"
+        f"📤 Total Targeted: <b>{total}</b>\n"
         f"🟢 Delivered: <b>{success_cnt}</b>\n"
         f"🔴 Failed/Blocked: <b>{failed_cnt}</b>\n"
+        f"⏱️ Cooldown: <b>{cooldown_hours} hours</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━"
     )
     await progress.edit_text(report_text, parse_mode="HTML")
@@ -693,10 +710,11 @@ async def admin_callback_router(update: Update, context: ContextTypes.DEFAULT_TY
         await show_admin_parcel_details(update, context, db, tracking_number=pnum, edit=True)
     elif data == "admin_broadcast_prompt":
         await handle_admin_broadcast_prompt(update, context)
-    elif data == "admin_broadcast_confirm":
+    elif data.startswith("admin_broadcast_confirm"):
+        cooldown_val = int(data.split(":", 1)[1]) if ":" in data else 48
         payload = context.user_data.pop("broadcast_payload", "")
         if payload:
-            await handle_admin_broadcast(update, context, db, payload)
+            await handle_admin_broadcast(update, context, db, payload, cooldown_hours=cooldown_val)
         else:
             await query.edit_message_text("⚠️ Broadcast payload expired. Please try again.")
     elif data == "admin_broadcast_cancel":
