@@ -67,7 +67,7 @@ def get_parcel_inline_keyboard(tracking_number: str, location: str = "") -> Inli
 
 def get_my_parcels_inline_keyboard(trackings: List[Dict]) -> InlineKeyboardMarkup:
     """
-    Inline buttons list for each parcel in /my, with Rename, Refresh All, Stop All, and Home options.
+    Inline buttons list for each parcel in /my, with Refresh, Rename (✏️), Mark Delivered (✅), Stop (🛑), and Home options.
     """
     buttons = []
     for item in trackings:
@@ -77,6 +77,7 @@ def get_my_parcels_inline_keyboard(trackings: List[Dict]) -> InlineKeyboardMarku
         buttons.append([
             InlineKeyboardButton(btn_text, callback_data=f"refresh:{num}"),
             InlineKeyboardButton("✏️", callback_data=f"rename:{num}"),
+            InlineKeyboardButton("✅", callback_data=f"deliver_user:{num}"),
             InlineKeyboardButton("🛑", callback_data=f"stop:{num}")
         ])
 

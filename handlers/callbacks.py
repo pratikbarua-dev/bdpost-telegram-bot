@@ -109,17 +109,22 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
 
     elif data.startswith("deliver_user:"):
         import html
+        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
         tracking_number = data.split(":", 1)[1]
         shipment = db.get_shipment_by_tracking_number(tracking_number)
         if shipment:
             db.deactivate_shipment_on_delivery(shipment["id"])
+            keyboard = [
+                [InlineKeyboardButton("📋 My Parcels", callback_data="cancel_action")],
+                [InlineKeyboardButton("🏠 Home", callback_data="go_home")]
+            ]
             await query.edit_message_text(
                 f"🎉 <b>Parcel Marked as Delivered!</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
                 f"📦 <code>{html.escape(tracking_number)}</code> has been marked as received and archived.\n"
                 f"You will no longer receive notifications for this parcel.\n"
                 f"━━━━━━━━━━━━━━━━━━━━",
-                reply_markup=get_main_keyboard(),
+                reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode="HTML"
             )
         else:
