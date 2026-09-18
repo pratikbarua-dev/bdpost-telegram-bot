@@ -23,11 +23,56 @@ class SupabaseDatabase:
         self.client = httpx.Client(base_url=f"{self.url}/rest/v1", headers=self.headers, timeout=30.0)
         logger.info("Supabase REST API Database initialized for %s", self.url)
 
+    def init_db(self) -> None:
+        """Supabase tables are provisioned via supabase_schema.sql"""
+        pass
+
+    def seed_post_office_directory_if_needed(self) -> None:
+        """Seeds post offices into Supabase post_offices table if empty."""
+        try:
+            check = self.client.get("/post_offices?select=id&limit=1")
+            if check.status_code == 200 and not check.json():
+                from bdpost.post_office_data import get_cleaned_post_offices_data
+                offices = get_cleaned_post_offices_data()
+                batch = []
+                for po in offices:
+                    batch.append({
+                        "post_office": po["post_office"],
+                        "post_code": po["post_code"],
+                        "thana": po.get("thana", ""),
+                        "district": po["district"],
+                        "division": po["division"],
+                        "phone": po.get("phone"),
+                        "source": po.get("source", "master_dataset")
+                    })
+                    if len(batch) >= 100:
+                        self.client.post(
+                            "/post_offices?on_conflict=post_office,post_code,district",
+                            json=batch,
+                            headers={**self.headers, "Prefer": "resolution=ignore-duplicates"}
+                        )
+                        batch = []
+                if batch:
+                    self.client.post(
+                        "/post_offices?on_conflict=post_office,post_code,district",
+                        json=batch,
+                        headers={**self.headers, "Prefer": "resolution=ignore-duplicates"}
+                    )
+                logger.info("Successfully seeded post_offices directory in Supabase.")
+        except Exception as e:
+            logger.debug("seed_post_office_directory notice: %s", e)
+
     def _req(self, method: str, endpoint: str, **kwargs) -> httpx.Response:
         try:
             res = self.client.request(method, endpoint, **kwargs)
             res.raise_for_status()
             return res
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 409:
+                logger.debug("Supabase REST conflict on %s %s: %s", method, endpoint, e)
+            else:
+                logger.error("Supabase REST error on %s %s: %s", method, endpoint, e)
+            raise
         except Exception as e:
             logger.error("Supabase REST error on %s %s: %s", method, endpoint, e)
             raise
@@ -109,13 +154,18 @@ class SupabaseDatabase:
 
             # Add original tracking number to chain
             try:
-                self._req("POST", "/shipment_tracking_numbers", json={
-                    "shipment_id": shipment_id,
-                    "tracking_number": cleaned_num,
-                    "source": "original",
-                    "type": "original",
-                    "created_at": now
-                }, headers={**self.headers, "Prefer": "resolution=ignore-duplicates"})
+                self._req(
+                    "POST",
+                    "/shipment_tracking_numbers?on_conflict=shipment_id,tracking_number",
+                    json={
+                        "shipment_id": shipment_id,
+                        "tracking_number": cleaned_num,
+                        "source": "original",
+                        "type": "original",
+                        "created_at": now
+                    },
+                    headers={**self.headers, "Prefer": "resolution=ignore-duplicates"}
+                )
             except Exception:
                 pass
 
@@ -130,18 +180,31 @@ class SupabaseDatabase:
                 "created_at": now
             }
             try:
-                self._req("POST", "/shipment_subscribers", json=sub_payload, headers={**self.headers, "Prefer": "resolution=merge-duplicates"})
+                self._req(
+                    "POST",
+                    "/shipment_subscribers?on_conflict=shipment_id,telegram_id",
+                    json=sub_payload,
+                    headers={**self.headers, "Prefer": "resolution=merge-duplicates"}
+                )
             except Exception:
-                self._req("PATCH", f"/shipment_subscribers?shipment_id=eq.{shipment_id}&telegram_id=eq.{telegram_id}", json={"active": 1, "label": label})
+                self._req(
+                    "PATCH",
+                    f"/shipment_subscribers?shipment_id=eq.{shipment_id}&telegram_id=eq.{telegram_id}",
+                    json={"active": 1, "label": label}
+                )
 
             try:
-                self._req("POST", "/trackings", json={
-                    "telegram_id": telegram_id,
-                    "tracking_number": cleaned_num,
-                    "label": label,
-                    "active": 1,
-                    "created_at": now
-                }, headers={**self.headers, "Prefer": "resolution=merge-duplicates"})
+                self.client.post(
+                    "/trackings?on_conflict=telegram_id,tracking_number",
+                    json={
+                        "telegram_id": telegram_id,
+                        "tracking_number": cleaned_num,
+                        "label": label,
+                        "active": 1,
+                        "created_at": now
+                    },
+                    headers={**self.headers, "Prefer": "resolution=merge-duplicates"}
+                )
             except Exception:
                 pass
 
@@ -165,21 +228,52 @@ class SupabaseDatabase:
         if rows:
             other_id = rows[0]["shipment_id"]
             if other_id != shipment_id:
-                # Merge
-                self._req("PATCH", f"/shipment_tracking_numbers?shipment_id=eq.{other_id}", json={"shipment_id": shipment_id})
-                self._req("PATCH", f"/shipment_subscribers?shipment_id=eq.{other_id}", json={"shipment_id": shipment_id})
-                self._req("DELETE", f"/shipments?id=eq.{other_id}")
+                # Merge tracking numbers safely to avoid unique constraint collisions
+                try:
+                    existing_stns = self._req("GET", f"/shipment_tracking_numbers?shipment_id=eq.{shipment_id}&select=tracking_number").json()
+                    existing_nums = {s["tracking_number"] for s in existing_stns}
+                    other_stns = self._req("GET", f"/shipment_tracking_numbers?shipment_id=eq.{other_id}&select=id,tracking_number").json()
+                    for o_stn in other_stns:
+                        if o_stn["tracking_number"] in existing_nums:
+                            self._req("DELETE", f"/shipment_tracking_numbers?id=eq.{o_stn['id']}")
+                        else:
+                            self._req("PATCH", f"/shipment_tracking_numbers?id=eq.{o_stn['id']}", json={"shipment_id": shipment_id})
+                except Exception as e:
+                    logger.debug("Merge tracking numbers notice: %s", e)
+
+                # Merge subscribers safely to avoid unique constraint collisions
+                try:
+                    existing_subs = self._req("GET", f"/shipment_subscribers?shipment_id=eq.{shipment_id}&select=telegram_id").json()
+                    existing_uids = {s["telegram_id"] for s in existing_subs}
+                    other_subs = self._req("GET", f"/shipment_subscribers?shipment_id=eq.{other_id}&select=id,telegram_id").json()
+                    for o_sub in other_subs:
+                        if o_sub["telegram_id"] in existing_uids:
+                            self._req("DELETE", f"/shipment_subscribers?id=eq.{o_sub['id']}")
+                        else:
+                            self._req("PATCH", f"/shipment_subscribers?id=eq.{o_sub['id']}", json={"shipment_id": shipment_id})
+                except Exception as e:
+                    logger.debug("Merge subscribers notice: %s", e)
+
+                try:
+                    self._req("DELETE", f"/shipments?id=eq.{other_id}")
+                except Exception as e:
+                    logger.debug("Delete merged shipment notice: %s", e)
             return False
 
         try:
-            self._req("POST", "/shipment_tracking_numbers", json={
-                "shipment_id": shipment_id,
-                "tracking_number": cleaned_num,
-                "source": source,
-                "type": num_type,
-                "discovered_from": discovered_from,
-                "created_at": now
-            }, headers={**self.headers, "Prefer": "resolution=ignore-duplicates"})
+            self._req(
+                "POST",
+                "/shipment_tracking_numbers?on_conflict=shipment_id,tracking_number",
+                json={
+                    "shipment_id": shipment_id,
+                    "tracking_number": cleaned_num,
+                    "source": source,
+                    "type": num_type,
+                    "discovered_from": discovered_from,
+                    "created_at": now
+                },
+                headers={**self.headers, "Prefer": "resolution=ignore-duplicates"}
+            )
 
             if num_type == "local" or source == "bdpost":
                 self._req("PATCH", f"/shipments?id=eq.{shipment_id}", json={"local_tracking_number": cleaned_num, "updated_at": now})
@@ -538,7 +632,12 @@ class SupabaseDatabase:
                 "created_at": now
             }
             try:
-                self._req("POST", "/events", json=payload, headers={**self.headers, "Prefer": "resolution=ignore-duplicates"})
+                self._req(
+                    "POST",
+                    "/events?on_conflict=event_hash",
+                    json=payload,
+                    headers={**self.headers, "Prefer": "resolution=ignore-duplicates"}
+                )
                 new_events.append(event)
                 known_hashes.add(event_hash)
                 if evt_date:
@@ -880,4 +979,51 @@ class SupabaseDatabase:
             self._req("PATCH", f"/users?telegram_id=eq.{telegram_id}", json={"last_broadcast_at": now})
         except Exception as e:
             logger.debug("record_user_broadcast_sent notice: %s", e)
+
+    # -------------------------------------------------------------
+    # Post Office & Officials Directory Operations
+    # -------------------------------------------------------------
+    def update_post_office_phone(self, post_code: str, new_phone: str, source: str = "user_verified") -> bool:
+        clean_code = post_code.strip()
+        clean_ph = new_phone.strip()
+        try:
+            from bdpost.directory import update_in_memory_post_office_phone
+            update_in_memory_post_office_phone(clean_code, clean_ph, source)
+        except Exception:
+            pass
+
+        try:
+            res = self._req("PATCH", f"/post_offices?post_code=eq.{clean_code}", json={
+                "phone": clean_ph,
+                "source": source
+            })
+            updated = res.json()
+            if updated:
+                return True
+
+            # If post office not yet present in Supabase table, insert it from directory dataset
+            from bdpost.directory import search_post_offices
+            matches = search_post_offices(clean_code, limit=1)
+            if matches:
+                po = matches[0]
+                ins_res = self._req(
+                    "POST",
+                    "/post_offices?on_conflict=post_office,post_code,district",
+                    json={
+                        "post_office": po["post_office"],
+                        "post_code": clean_code,
+                        "thana": po.get("thana", ""),
+                        "district": po.get("district", ""),
+                        "division": po.get("division", ""),
+                        "phone": clean_ph,
+                        "source": source
+                    },
+                    headers={**self.headers, "Prefer": "resolution=merge-duplicates"}
+                )
+                return bool(ins_res.json())
+            return False
+        except Exception as e:
+            logger.error("update_post_office_phone error for postcode %s: %s", clean_code, e)
+            return False
+
 

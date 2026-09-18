@@ -8,7 +8,7 @@ from database.db import Database
 from bdpost.client import track as track_bdpost, BangladeshPostUnavailableError
 from bdpost.parser import parse_tracking_response as parse_bdpost, is_delivered, is_bdpost_handover_event
 from bdpost.formatter import format_event_notification, format_handover_notification, format_expiry_notification
-from cainiao.client import track as track_cainiao, CainiaoUnavailableError, CainiaoError
+from cainiao.client import track as track_cainiao, CainiaoUnavailableError, CainiaoError, CainiaoRateLimitError, CainiaoClient
 from cainiao.parser import parse_tracking_response as parse_cainiao, extract_linked_tracking_numbers as extract_linked_cainiao
 
 logger = logging.getLogger(__name__)
@@ -76,50 +76,57 @@ async def _process_single_shipment_check(context: ContextTypes.DEFAULT_TYPE, db:
     # 1. Check Cainiao across chain numbers (if enabled)
     # -------------------------------------------------------------
     if cainiao_enabled:
-        # Prioritize single active Cainiao identifier per shipment to avoid duplicate API hammering
-        cainiao_targets = [n for n in chain_numbers if n.startswith("CNG") or n.startswith("AP")]
-        if not cainiao_targets:
-            cainiao_targets = [primary_number]
+        cainiao_client = CainiaoClient.get_instance()
+        if cainiao_client.is_cooling_down():
+            logger.debug("Cainiao circuit breaker cooling down, skipping Cainiao check for shipment %d (%s)", shipment_id, primary_number)
         else:
-            cainiao_targets = [cainiao_targets[-1]]  # Use latest known alias
+            # Prioritize single active Cainiao identifier per shipment to avoid duplicate API hammering
+            cainiao_targets = [n for n in chain_numbers if n.startswith("CNG") or n.startswith("AP")]
+            if not cainiao_targets:
+                cainiao_targets = [primary_number]
+            else:
+                cainiao_targets = [cainiao_targets[-1]]  # Use latest known alias
 
-        for num in cainiao_targets:
-            try:
-                logger.info("Checking Cainiao for shipment %d (%s)", shipment_id, num)
-                cainiao_data = await track_cainiao(num)
-                cainiao_events = parse_cainiao(cainiao_data)
+            for num in cainiao_targets:
+                try:
+                    logger.info("Checking Cainiao for shipment %d (%s)", shipment_id, num)
+                    cainiao_data = await track_cainiao(num)
+                    cainiao_events = parse_cainiao(cainiao_data)
 
-                # Discover any newly linked tracking numbers
-                discovered = extract_linked_cainiao(cainiao_data, num)
-                for link in discovered:
-                    new_num = link["tracking_number"]
-                    if new_num not in chain_numbers:
-                        chain_numbers.append(new_num)
-                        db.link_tracking_number(
-                            shipment_id=shipment_id,
-                            tracking_number=new_num,
-                            source=link.get("source", "cainiao"),
-                            num_type=link.get("type", "linked"),
-                            discovered_from=num
-                        )
-                        logger.info("Scheduler discovered linked tracking number for shipment %d: %s -> %s", shipment_id, num, new_num)
-
-                if cainiao_events:
-                    for ce in cainiao_events:
-                        ce["tracking_number"] = num
-                    new_cainiao_events = db.save_events(primary_number, cainiao_events)
-                    if new_cainiao_events:
-                        logger.info("Cainiao new event(s) for shipment %d (%s): %d", shipment_id, primary_number, len(new_cainiao_events))
-                        for event in new_cainiao_events:
-                            await _notify_subscribers(
-                                context, db, subscribers, shipment_id, primary_number, event,
-                                local_tracking_number=local_tracking_number,
-                                tracking_chain=chain_numbers
+                    # Discover any newly linked tracking numbers
+                    discovered = extract_linked_cainiao(cainiao_data, num)
+                    for link in discovered:
+                        new_num = link["tracking_number"]
+                        if new_num not in chain_numbers:
+                            chain_numbers.append(new_num)
+                            db.link_tracking_number(
+                                shipment_id=shipment_id,
+                                tracking_number=new_num,
+                                source=link.get("source", "cainiao"),
+                                num_type=link.get("type", "linked"),
+                                discovered_from=num
                             )
-            except (CainiaoUnavailableError, CainiaoError) as ce:
-                logger.warning("Cainiao check failed for shipment %d (%s): %s", shipment_id, num, ce)
-            except Exception as e:
-                logger.error("Unexpected error checking Cainiao for %s: %s", num, e, exc_info=True)
+                            logger.info("Scheduler discovered linked tracking number for shipment %d: %s -> %s", shipment_id, num, new_num)
+
+                    if cainiao_events:
+                        for ce in cainiao_events:
+                            ce["tracking_number"] = num
+                        new_cainiao_events = db.save_events(primary_number, cainiao_events)
+                        if new_cainiao_events:
+                            logger.info("Cainiao new event(s) for shipment %d (%s): %d", shipment_id, primary_number, len(new_cainiao_events))
+                            for event in new_cainiao_events:
+                                await _notify_subscribers(
+                                    context, db, subscribers, shipment_id, primary_number, event,
+                                    local_tracking_number=local_tracking_number,
+                                    tracking_chain=chain_numbers
+                                )
+                except CainiaoRateLimitError as re:
+                    logger.warning("Cainiao rate limit active for shipment %d (%s): %s", shipment_id, num, re)
+                    break
+                except (CainiaoUnavailableError, CainiaoError) as ce:
+                    logger.warning("Cainiao check failed for shipment %d (%s): %s", shipment_id, num, ce)
+                except Exception as e:
+                    logger.error("Unexpected error checking Cainiao for %s: %s", num, e, exc_info=True)
 
     # -------------------------------------------------------------
     # 2. Check Bangladesh Post across valid postal numbers (if enabled)

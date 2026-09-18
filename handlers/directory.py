@@ -140,10 +140,20 @@ async def process_phone_report_submission(update: Update, context: ContextTypes.
     uid = user.id
     uname = f"@{user.username}" if user.username else "No username"
     fname = html.escape(user.full_name or "User")
+
+    from bdpost.directory import update_in_memory_post_office_phone
+
     clean_phone = submitted_text.strip()
 
     # Update database immediately
-    db.update_post_office_phone(postcode, clean_phone, source=f"crowdsourced_by_{uid}")
+    if db:
+        try:
+            db.update_post_office_phone(postcode, clean_phone, source=f"crowdsourced_by_{uid}")
+        except Exception as e:
+            logger.error("Failed to update post office phone in database: %s", e)
+
+    # Update in-memory dataset so future searches in this process immediately reflect it
+    update_in_memory_post_office_phone(postcode, clean_phone, source=f"crowdsourced_by_{uid}")
 
     # Forward correction to Admin directly
     admin_msg = (

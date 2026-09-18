@@ -218,3 +218,20 @@ def match_location_to_post_office(location_str: str) -> Optional[Dict[str, Any]]
     po = best_matches[0]
     contact = get_fallback_contact_for_office(po)
     return {"tier": "match", "post_office": po, "contact": contact}
+
+
+def update_in_memory_post_office_phone(post_code: str, new_phone: str, source: str = "user_verified") -> bool:
+    """
+    Updates the phone and source for a post office in the cached in-memory dataset.
+    Returns True if at least one matching post office was updated.
+    """
+    _ensure_data_loaded()
+    clean_code = post_code.strip()
+    updated = False
+    for po in _POST_OFFICES:
+        if po.get("post_code") == clean_code:
+            po["phone"] = new_phone
+            po["source"] = source
+            updated = True
+    return updated
+

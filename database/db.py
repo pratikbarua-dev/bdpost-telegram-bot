@@ -1336,6 +1336,11 @@ class Database:
     # Post Office & Officials Directory Operations
     # -----------------------------------------------------------------
     def update_post_office_phone(self, post_code: str, new_phone: str, source: str = "user_verified") -> bool:
+        try:
+            from bdpost.directory import update_in_memory_post_office_phone
+            update_in_memory_post_office_phone(post_code, new_phone, source)
+        except Exception:
+            pass
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(self._prep_sql("""
