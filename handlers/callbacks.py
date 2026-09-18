@@ -24,6 +24,12 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         if await admin_callback_router(update, context):
             return
 
+    # Check if this is a shopping guide callback
+    if query.data and query.data.startswith("guide:"):
+        from handlers.guide import guide_callback_router
+        if await guide_callback_router(update, context):
+            return
+
     await query.answer()
     data = query.data
     telegram_id = update.effective_user.id

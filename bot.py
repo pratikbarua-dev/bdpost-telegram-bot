@@ -90,6 +90,11 @@ def main() -> None:
     application.add_handler(CommandHandler("name", name_command))
     application.add_handler(CommandHandler("rename", name_command))
     application.add_handler(CommandHandler("postcode", postcode_command))
+    from handlers.guide import guide_command
+    application.add_handler(CommandHandler("guide", guide_command))
+    application.add_handler(CommandHandler("faq", guide_command))
+    application.add_handler(CommandHandler("customs", guide_command))
+    application.add_handler(CommandHandler("stages", guide_command))
     application.add_handler(CommandHandler("feedback", feedback_command))
     application.add_handler(CommandHandler("support", feedback_command))
     application.add_handler(CommandHandler("admin", admin_command))

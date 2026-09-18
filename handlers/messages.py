@@ -90,6 +90,14 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await stop_command(update, context)
         return
 
+    # Button: 💡 Shopping Guide
+    if text in ["💡 Shopping Guide", "shopping guide", "guide", "/guide", "/faq", "/customs", "/stages"]:
+        await cleanup_previous_messages(update, context)
+        context.user_data.pop("state", None)
+        from handlers.guide import guide_command
+        await guide_command(update, context)
+        return
+
     # Button: 💬 Feedback
     if text == "💬 Feedback":
         await cleanup_previous_messages(update, context)

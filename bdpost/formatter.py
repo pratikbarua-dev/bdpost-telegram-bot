@@ -36,6 +36,41 @@ def format_tracking_chain(chain_numbers: Optional[List[str]]) -> str:
     return ""
 
 
+def get_delivery_channel_badge(tracking_number: str, tracking_chain: Optional[List[str]] = None) -> str:
+    """
+    Determines whether the parcel is destined for RedX home delivery (BR...MG)
+    or Local Bangladesh Post Office based on prefix and known chain.
+    """
+    all_numbers = [tracking_number] + (tracking_chain or [])
+    is_redx = any(
+        n.strip().upper().startswith("BR") and n.strip().upper().endswith("MG")
+        for n in all_numbers if n
+    )
+    if is_redx:
+        return "🚚 <b>Delivery Channel:</b> RedX Courier (Home Delivery ~10-13 days)"
+    return "📮 <b>Delivery Channel:</b> Bangladesh Post Office (~15-30+ days)"
+
+
+def get_status_smart_insight(status: str, desc: str, source: str) -> Optional[str]:
+    """
+    Generates actionable, contextual advice based on the carrier and stage.
+    """
+    st_lower = (status or "").lower()
+    desc_lower = (desc or "").lower()
+
+    if source == "cainiao":
+        if any(w in st_lower or w in desc_lower for w in ["linehaul", "linehual", "local airport", "destination country"]):
+            return "💡 <i>টিপ: পার্সেল বাংলাদেশে এসে পৌঁছেছে। কাস্টমস ছাড়িয়ে ডাকঘর সিস্টেমে এন্ট্রি হতে ২–৪ কার্যদিবস সময় লাগতে পারে।</i>"
+        if any(w in st_lower or w in desc_lower for w in ["awaiting flight", "awaiting transit", "departure transport hub"]):
+            return "💡 <i>টিপ: পার্সেলটি চায়না বিমানবন্দরে ফ্লাইটের অপেক্ষায় আছে (এ স্টেজে সাধারণত ৪–৬ দিন সময় লাগে)।</i>"
+    elif source == "bdpost":
+        if "delivered" in st_lower:
+            return "💡 <i>জরুরি তথ্য: পোস্ট অফিসের সিস্টেমে 'Delivered' মানে পার্সেলটি আপনার লোকাল ডাকঘরে বুক হয়েছে। পোস্টম্যান যোগাযোগ না করলে সরাসরি শাখায় যোগাযোগ করতে পারেন।</i>"
+        if "wrongly directed" in st_lower or "wrongly directed" in desc_lower or "wrongly forwarded" in desc_lower:
+            return "💡 <i>টিপ: এটি স্বাভাবিক — জেলা প্রধান ডাকঘর (HO) থেকে পার্সেলটি আপনার স্থানীয় উপজেলা শাখায় পাঠানো হচ্ছে।</i>"
+    return None
+
+
 def format_status_message(
     tracking_number: str,
     event: Dict,
@@ -71,6 +106,10 @@ def format_status_message(
     if local_tracking_number and local_tracking_number != tracking_number:
         lines.append(f"🇧🇩 <b>Local Tracking:</b> <code>{_esc(local_tracking_number)}</code>")
 
+    # Add Delivery Channel Badge
+    badge = get_delivery_channel_badge(tracking_number, tracking_chain)
+    lines.append(badge)
+
     lines.append("")
     lines.append(f"📌 <b>Status:</b> {_esc(status)}")
 
@@ -89,6 +128,11 @@ def format_status_message(
     chain_str = format_tracking_chain(tracking_chain)
     if chain_str:
         extra_meta.append(chain_str)
+
+    # Contextual Smart Insight based on stage/carrier
+    insight = get_status_smart_insight(status, desc, source)
+    if insight:
+        extra_meta.append(insight)
 
     # Attach Post Office & Direct Phone Block for BD Post events
     if source == "bdpost" and location:
