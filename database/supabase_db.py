@@ -371,7 +371,7 @@ class SupabaseDatabase:
         return res.json()
 
     def get_user_active_shipments(self, telegram_id: int) -> List[Dict]:
-        sub_res = self._req("GET", f"/shipment_subscribers?telegram_id=eq.{telegram_id}&active=eq.1&select=shipment_id,label")
+        sub_res = self._req("GET", f"/shipment_subscribers?telegram_id=eq.{telegram_id}&active=eq.1&select=shipment_id,label&order=shipment_id.desc")
         sub_rows = sub_res.json()
         if not sub_rows:
             return []
