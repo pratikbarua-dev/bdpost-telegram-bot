@@ -136,6 +136,10 @@ class SupabaseDatabase:
 
         if rows:
             shipment_id = rows[0]["shipment_id"]
+            try:
+                self._req("PATCH", f"/shipments?id=eq.{shipment_id}", json={"is_delivered": 0, "updated_at": now})
+            except Exception:
+                pass
         else:
             # 2. Check if primary in shipments
             s_res = self._req("GET", f"/shipments?primary_tracking_number=eq.{cleaned_num}&select=id&limit=1")
@@ -143,10 +147,15 @@ class SupabaseDatabase:
 
             if s_rows:
                 shipment_id = s_rows[0]["id"]
+                try:
+                    self._req("PATCH", f"/shipments?id=eq.{shipment_id}", json={"is_delivered": 0, "updated_at": now})
+                except Exception:
+                    pass
             else:
                 # 3. Insert new shipment
                 new_s = self._req("POST", "/shipments", json={
                     "primary_tracking_number": cleaned_num,
+                    "is_delivered": 0,
                     "created_at": now,
                     "updated_at": now
                 }).json()
@@ -187,11 +196,17 @@ class SupabaseDatabase:
                     headers={**self.headers, "Prefer": "resolution=merge-duplicates"}
                 )
             except Exception:
-                self._req(
-                    "PATCH",
-                    f"/shipment_subscribers?shipment_id=eq.{shipment_id}&telegram_id=eq.{telegram_id}",
-                    json={"active": 1, "label": label}
-                )
+                try:
+                    self._req(
+                        "PATCH",
+                        f"/shipment_subscribers?shipment_id=eq.{shipment_id}&telegram_id=eq.{telegram_id}",
+                        json={"active": 1, "label": label}
+                    )
+                except Exception:
+                    try:
+                        self.client.post("/shipment_subscribers", json=sub_payload)
+                    except Exception:
+                        pass
 
             try:
                 self.client.post(
@@ -206,7 +221,13 @@ class SupabaseDatabase:
                     headers={**self.headers, "Prefer": "resolution=merge-duplicates"}
                 )
             except Exception:
-                pass
+                try:
+                    self.client.patch(
+                        f"/trackings?telegram_id=eq.{telegram_id}&tracking_number=eq.{cleaned_num}",
+                        json={"active": 1, "label": label}
+                    )
+                except Exception:
+                    pass
 
         return shipment_id
 

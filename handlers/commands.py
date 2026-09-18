@@ -60,10 +60,25 @@ async def my_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
         title = f"<b>{label}</b> (<code>{num}</code>)" if label else f"<code>{num}</code>"
 
+        # Check for local BD Post number or chain aliases
+        local_num = item.get("local_tracking_number")
+        chain_list = item.get("tracking_chain") or []
+        chain_nums = [
+            (t.get("tracking_number") if isinstance(t, dict) else str(t))
+            for t in chain_list
+        ]
+        chain_nums = [c for c in chain_nums if c and c != num]
+
+        alias_line = ""
+        if local_num and local_num != num:
+            alias_line = f"   🇧🇩 BD Post: <code>{local_num}</code>\n"
+        elif chain_nums:
+            alias_line = f"   🔗 Linked: <code>{', '.join(chain_nums[:2])}</code>\n"
+
         if status:
             loc_str = f"📍 {loc}\n   " if loc else ""
             src = "🇧🇩 BD Post" if src_raw == "bdpost" else "🚚 Cainiao"
-            message_lines.append(f"{idx}. {title} [{src}]\n   {loc_str}📌 {status}\n")
+            message_lines.append(f"{idx}. {title} [{src}]\n{alias_line}   {loc_str}📌 {status}\n")
         else:
             created_at_str = item.get("created_at", "")
             day_num = 1
@@ -74,7 +89,7 @@ async def my_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 day_num = max(1, min(10, int((now - created_dt).total_seconds() / 86400) + 1))
             except Exception:
                 pass
-            message_lines.append(f"{idx}. {title}\n   ⏳ Awaiting first scan (Day {day_num} of 10)\n")
+            message_lines.append(f"{idx}. {title}\n{alias_line}   ⏳ Awaiting first scan (Day {day_num} of 10)\n")
 
     message_lines.append("━━━━━━━━━━━━━━━━━━━━")
 

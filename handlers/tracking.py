@@ -181,6 +181,7 @@ async def process_track_numbers(
                     cainiao_enabled=1,
                     bdpost_enabled=1,
                     handover_detected=0,
+                    is_delivered=0,
                     local_tracking_number=local_num
                 )
                 msg = format_pending_status_message(tracking_number, label=label, tracking_chain=chain_numbers, day_number=1)
@@ -226,6 +227,7 @@ async def process_track_numbers(
                     bdpost_enabled=1,
                     handover_detected=1,
                     handover_event_hash=latest_bdpost["event_hash"] if latest_bdpost else None,
+                    is_delivered=0,
                     local_tracking_number=local_num
                 )
                 display_event = latest_bdpost or latest_cainiao
@@ -249,6 +251,7 @@ async def process_track_numbers(
                     cainiao_enabled=1,
                     bdpost_enabled=1,
                     handover_detected=0,
+                    is_delivered=0,
                     local_tracking_number=local_num
                 )
                 display_event = latest_cainiao
