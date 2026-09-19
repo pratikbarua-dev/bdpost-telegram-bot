@@ -117,6 +117,30 @@ To make all your tracked parcels, chains, and custom names permanent across rede
 
 ---
 
+## 🌐 Public REST API Endpoints
+
+The service includes a high-performance, asynchronous REST API running on `aiohttp` with full CORS support enabled:
+
+### 1. Live Tracking API
+* **Endpoint:** `GET /api/track/{tracking_number}` (or `GET /api/track?number={tracking_number}`)
+* **Example:** `https://bdpost-telegram-bot.onrender.com/api/track/BR006144481MG`
+* **Features:**
+  - Parallel multi-carrier queries (AliExpress / Cainiao + Bangladesh Post).
+  - Automatic linked tracking chain discovery (`AP...` → `CNG...` → `UG...`).
+  - Delivery channel badge (`RedX Courier` vs `Bangladesh Post Office`).
+  - Structured chronological timeline and latest status card.
+
+### 2. Post Office Directory API
+* **Endpoint:** `GET /api/postcode?query={term}&limit=20`
+* **Example:** `https://bdpost-telegram-bot.onrender.com/api/postcode?query=mirpur`
+* **Returns:** Matching post offices, districts, divisions, postcodes, and office contact numbers.
+
+### 3. API Root & Schema
+* **Endpoint:** `GET /api`
+* **Returns:** Service description, endpoint documentation, and live examples.
+
+---
+
 ### 🔄 Keep Active 24/7 (Free Tier Sleep Prevention)
 Render free web services spin down after 15 minutes of inactivity. To keep your bot active continuously:
 1. Copy your Render service URL (e.g. `https://bdpost-telegram-bot.onrender.com`).

@@ -47,8 +47,9 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def post_init(application: Application) -> None:
-    # Start web server for Render health check compatibility
-    asyncio.create_task(start_health_server())
+    # Start web server and REST API for Render and external consumers
+    db = application.bot_data.get("db")
+    asyncio.create_task(start_health_server(db=db))
 
 
 def main() -> None:
