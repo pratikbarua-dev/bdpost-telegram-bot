@@ -16,39 +16,70 @@ from handlers.cleanup import cleanup_previous_messages, record_prompt_message
 logger = logging.getLogger(__name__)
 
 
-async def my_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.effective_user or not update.message:
+async def my_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    filter_mode: str = "active",
+    edit: bool = False
+) -> None:
+    if not update.effective_user:
         return
 
-    await cleanup_previous_messages(update, context)
-    context.user_data.pop("state", None)
+    if not edit:
+        await cleanup_previous_messages(update, context)
+        context.user_data.pop("state", None)
 
     telegram_id = update.effective_user.id
     db: Database = context.bot_data["db"]
 
-    trackings = db.get_user_active_trackings(telegram_id)
+    all_trackings = db.get_user_all_trackings(telegram_id)
 
-    if not trackings:
-        await update.message.reply_text(
+    if not all_trackings:
+        msg = (
             "📦 <b>You aren't tracking any parcels yet.</b>\n\n"
-            "Tap <b>📦 Track Parcel</b> below to add one!",
-            reply_markup=get_main_keyboard(),
-            parse_mode="HTML"
+            "Tap <b>📦 Track Parcel</b> below to add one!"
         )
+        if edit and update.callback_query:
+            await update.callback_query.edit_message_text(msg, reply_markup=get_main_keyboard(), parse_mode="HTML")
+        elif update.message:
+            await update.message.reply_text(msg, reply_markup=get_main_keyboard(), parse_mode="HTML")
         return
 
+    active_items = [t for t in all_trackings if t.get("is_delivered") == 0 and t.get("is_subscribed", 1) == 1]
+    delivered_items = [t for t in all_trackings if t.get("is_delivered") == 1 or t.get("is_subscribed", 1) == 0]
+    total_count = len(all_trackings)
+    active_count = len(active_items)
+    delivered_count = len(delivered_items)
+
+    if filter_mode == "delivered":
+        display_items = delivered_items
+        header_title = f"✅ <b>Delivered Parcels ({delivered_count})</b>"
+    elif filter_mode == "all":
+        display_items = all_trackings
+        header_title = f"📦 <b>All Your Parcels ({total_count} Total: {active_count} Active, {delivered_count} Delivered)</b>"
+    else:
+        display_items = active_items
+        header_title = f"🚚 <b>Active In-Transit Parcels ({active_count})</b>"
+
     message_lines = [
-        "📦 <b>Your Active Parcels</b>",
+        header_title,
         "━━━━━━━━━━━━━━━━━━━━"
     ]
     now = datetime.datetime.now(datetime.timezone.utc)
 
-    for idx, item in enumerate(trackings, 1):
+    if not display_items:
+        if filter_mode == "delivered":
+            message_lines.append("<i>No delivered or archived parcels yet.</i>\n")
+        else:
+            message_lines.append("<i>No active in-transit parcels right now.</i>\n")
+
+    for idx, item in enumerate(display_items, 1):
         num = item["tracking_number"]
         label = item.get("label")
         status = item.get("latest_status")
         loc = item.get("latest_location")
         src_raw = item.get("latest_source")
+        is_deliv = bool(item.get("is_delivered") == 1 or item.get("is_subscribed", 1) == 0)
 
         # Fallback to single get_latest_event if not populated by batch
         if not status:
@@ -75,10 +106,11 @@ async def my_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         elif chain_nums:
             alias_line = f"   🔗 Linked: <code>{', '.join(chain_nums[:2])}</code>\n"
 
+        status_tag = " [✅ Delivered]" if is_deliv else ""
         if status:
             loc_str = f"📍 {loc}\n   " if loc else ""
             src = "🇧🇩 BD Post" if src_raw == "bdpost" else "🚚 Cainiao"
-            message_lines.append(f"{idx}. {title} [{src}]\n{alias_line}   {loc_str}📌 {status}\n")
+            message_lines.append(f"{idx}. {title} [{src}]{status_tag}\n{alias_line}   {loc_str}📌 {status}\n")
         else:
             created_at_str = item.get("created_at", "")
             day_num = 1
@@ -89,15 +121,31 @@ async def my_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 day_num = max(1, min(10, int((now - created_dt).total_seconds() / 86400) + 1))
             except Exception:
                 pass
-            message_lines.append(f"{idx}. {title}\n{alias_line}   ⏳ Awaiting first scan (Day {day_num} of 10)\n")
+            message_lines.append(f"{idx}. {title}{status_tag}\n{alias_line}   ⏳ Awaiting first scan (Day {day_num} of 10)\n")
 
     message_lines.append("━━━━━━━━━━━━━━━━━━━━")
 
-    await update.message.reply_text(
-        "\n".join(message_lines),
-        reply_markup=get_my_parcels_inline_keyboard(trackings),
-        parse_mode="HTML"
+    markup = get_my_parcels_inline_keyboard(
+        display_items,
+        filter_mode=filter_mode,
+        active_count=active_count,
+        delivered_count=delivered_count,
+        total_count=total_count
     )
+
+    text = "\n".join(message_lines)
+    if edit and update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=markup, parse_mode="HTML")
+    elif update.message:
+        await update.message.reply_text(text, reply_markup=markup, parse_mode="HTML")
+
+
+async def all_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Shortcut to show all parcels including delivered / archived ones.
+    Usage: /all or /history
+    """
+    await my_command(update, context, filter_mode="all")
 
 
 async def delivered_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -71,10 +71,17 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     # Button: 📋 My Parcels
-    if text == "📋 My Parcels":
+    if text in ["📋 My Parcels", "my parcels", "/my"]:
         await cleanup_previous_messages(update, context)
         context.user_data.pop("state", None)
-        await my_command(update, context)
+        await my_command(update, context, filter_mode="active")
+        return
+
+    # All Parcels / History
+    if text in ["📦 All Parcels", "all parcels", "/all", "/history"]:
+        await cleanup_previous_messages(update, context)
+        context.user_data.pop("state", None)
+        await my_command(update, context, filter_mode="all")
         return
 
     # Button: 📮 Postcode & Offices

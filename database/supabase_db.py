@@ -551,6 +551,64 @@ class SupabaseDatabase:
             })
         return result
 
+    def get_user_all_trackings(self, telegram_id: int) -> List[Dict]:
+        """
+        Returns all trackings belonging to the user, including delivered and archived ones.
+        """
+        shipments = self.get_user_all_shipments(telegram_id)
+        if not shipments:
+            return []
+
+        all_numbers = []
+        for s in shipments:
+            all_numbers.append(s["primary_tracking_number"])
+            for t in s.get("tracking_chain", []):
+                all_numbers.append(t["tracking_number"])
+
+        events_by_num = {}
+        if all_numbers:
+            try:
+                in_filter = f"({','.join(set(all_numbers))})"
+                res = self._req("GET", f"/events?tracking_number=in.{in_filter}&select=*&order=id.desc")
+                for e in res.json():
+                    num = e["tracking_number"]
+                    if num not in events_by_num:
+                        events_by_num[num] = e
+                    elif e.get("source") == "bdpost" and events_by_num[num].get("source") != "bdpost":
+                        events_by_num[num] = e
+            except Exception as ex:
+                logger.debug("Batch event fetch notice: %s", ex)
+
+        result = []
+        for s in shipments:
+            p_num = s["primary_tracking_number"]
+            latest_e = events_by_num.get(p_num)
+            if not latest_e:
+                for t in s.get("tracking_chain", []):
+                    if t["tracking_number"] in events_by_num:
+                        latest_e = events_by_num[t["tracking_number"]]
+                        break
+
+            result.append({
+                "shipment_id": s["id"],
+                "tracking_number": p_num,
+                "label": s.get("label"),
+                "cainiao_enabled": s.get("cainiao_enabled", 1),
+                "bdpost_enabled": s.get("bdpost_enabled", 1),
+                "handover_detected": s.get("handover_detected", 0),
+                "is_delivered": s.get("is_delivered", 0),
+                "is_subscribed": s.get("is_subscribed", 1),
+                "local_tracking_number": s.get("local_tracking_number"),
+                "tracking_chain": s.get("tracking_chain", []),
+                "created_at": s["created_at"],
+                "last_checked_at": s.get("last_checked_at"),
+                "latest_source": latest_e.get("source") if latest_e else None,
+                "latest_status": latest_e.get("status") if latest_e else None,
+                "latest_location": latest_e.get("location") if latest_e else None,
+                "latest_event_date": latest_e.get("event_date") if latest_e else None,
+            })
+        return result
+
     def get_subscribers_with_labels_for_tracking(self, tracking_number: str) -> List[Dict]:
         shipment = self.get_shipment_by_tracking_number(tracking_number)
         if shipment:

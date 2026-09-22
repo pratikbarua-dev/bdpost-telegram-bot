@@ -113,6 +113,33 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         from handlers.directory import execute_postcode_search
         await execute_postcode_search(update, context, location_query)
 
+    elif data.startswith("view_parcels:"):
+        filter_mode = data.split(":", 1)[1]
+        from handlers.commands import my_command
+        await my_command(update, context, filter_mode=filter_mode, edit=True)
+
+    elif data.startswith("retrack:"):
+        tracking_number = data.split(":", 1)[1]
+        shipment = db.get_shipment_by_tracking_number(tracking_number)
+        if shipment:
+            sid = shipment["id"]
+            db.update_shipment_status(sid, is_delivered=0, cainiao_enabled=1, bdpost_enabled=1)
+            if hasattr(db, "_req"):
+                try:
+                    db._req("PATCH", f"/shipment_subscribers?shipment_id=eq.{sid}&telegram_id=eq.{telegram_id}", json={"active": 1})
+                except Exception:
+                    pass
+            else:
+                with db._get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(db._prep_sql("UPDATE shipment_subscribers SET active = 1 WHERE shipment_id = ? AND telegram_id = ?"), (sid, telegram_id))
+                    conn.commit()
+            await query.answer(f"🔄 Re-activated tracking for {tracking_number}!", show_alert=True)
+            from handlers.commands import my_command
+            await my_command(update, context, filter_mode="active", edit=True)
+        else:
+            await query.answer("Shipment not found.", show_alert=True)
+
     elif data.startswith("deliver_user:"):
         import html
         from telegram import InlineKeyboardMarkup, InlineKeyboardButton

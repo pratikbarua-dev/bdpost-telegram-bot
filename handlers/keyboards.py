@@ -66,26 +66,59 @@ def get_parcel_inline_keyboard(tracking_number: str, location: str = "") -> Inli
     return InlineKeyboardMarkup(buttons)
 
 
-def get_my_parcels_inline_keyboard(trackings: List[Dict]) -> InlineKeyboardMarkup:
+def get_my_parcels_inline_keyboard(
+    trackings: List[Dict],
+    filter_mode: str = "active",
+    active_count: int = 0,
+    delivered_count: int = 0,
+    total_count: int = 0
+) -> InlineKeyboardMarkup:
     """
-    Inline buttons list for each parcel in /my, with Refresh, Rename (✏️), Mark Delivered (✅), Stop (🛑), and Home options.
+    Inline buttons list for parcels with filter tabs:
+    [ 🚚 In Transit ] [ ✅ Delivered ] [ 📦 All ]
     """
     buttons = []
+
+    # Filter navigation tabs
+    tab_active = f"{'• ' if filter_mode == 'active' else ''}🚚 In Transit ({active_count}){' •' if filter_mode == 'active' else ''}"
+    tab_delivered = f"{'• ' if filter_mode == 'delivered' else ''}✅ Delivered ({delivered_count}){' •' if filter_mode == 'delivered' else ''}"
+    tab_all = f"{'• ' if filter_mode == 'all' else ''}📦 All ({total_count}){' •' if filter_mode == 'all' else ''}"
+
+    buttons.append([
+        InlineKeyboardButton(tab_active, callback_data="view_parcels:active"),
+        InlineKeyboardButton(tab_delivered, callback_data="view_parcels:delivered"),
+        InlineKeyboardButton(tab_all, callback_data="view_parcels:all")
+    ])
+
     for item in trackings:
         num = item["tracking_number"]
         label = item.get("label")
-        btn_text = f"📦 {label} ({num})" if label else f"📦 {num}"
+        is_deliv = bool(item.get("is_delivered") == 1 or item.get("is_subscribed") == 0)
+        btn_text = f"{label} ({num})" if label else num
+
+        if is_deliv:
+            buttons.append([
+                InlineKeyboardButton(f"✅ {btn_text}", callback_data=f"refresh:{num}"),
+                InlineKeyboardButton("🔄 Re-track", callback_data=f"retrack:{num}")
+            ])
+        else:
+            buttons.append([
+                InlineKeyboardButton(f"📦 {btn_text}", callback_data=f"refresh:{num}"),
+                InlineKeyboardButton("✏️", callback_data=f"rename:{num}"),
+                InlineKeyboardButton("✅", callback_data=f"deliver_user:{num}"),
+                InlineKeyboardButton("🛑", callback_data=f"stop:{num}")
+            ])
+
+    if filter_mode == "active" and trackings:
         buttons.append([
-            InlineKeyboardButton(btn_text, callback_data=f"refresh:{num}"),
-            InlineKeyboardButton("✏️", callback_data=f"rename:{num}"),
-            InlineKeyboardButton("✅", callback_data=f"deliver_user:{num}"),
-            InlineKeyboardButton("🛑", callback_data=f"stop:{num}")
+            InlineKeyboardButton("🔄 Refresh All", callback_data="refresh_all"),
+            InlineKeyboardButton("🛑 Stop All", callback_data="stop_all_confirm")
+        ])
+    elif filter_mode == "all" and trackings:
+        buttons.append([
+            InlineKeyboardButton("🔄 Refresh All", callback_data="refresh_all")
         ])
 
-    buttons.append([
-        InlineKeyboardButton("🔄 Refresh All", callback_data="refresh_all"),
-        InlineKeyboardButton("🛑 Stop All", callback_data="stop_all_confirm")
-    ])
     buttons.append([
         InlineKeyboardButton("🏠 Back to Home", callback_data="go_home")
     ])

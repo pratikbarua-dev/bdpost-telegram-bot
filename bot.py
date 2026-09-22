@@ -85,6 +85,9 @@ def main() -> None:
     application.add_handler(CommandHandler("track", track_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("my", my_command))
+    from handlers.commands import all_command
+    application.add_handler(CommandHandler("all", all_command))
+    application.add_handler(CommandHandler("history", all_command))
     application.add_handler(CommandHandler("delivered", delivered_command))
     application.add_handler(CommandHandler("received", delivered_command))
     application.add_handler(CommandHandler("stop", stop_command))
