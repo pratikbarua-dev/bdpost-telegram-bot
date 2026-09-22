@@ -385,6 +385,22 @@ class SupabaseDatabase:
                 shipments.append(shipment)
         return shipments
 
+    def get_user_all_shipments(self, telegram_id: int) -> List[Dict]:
+        sub_res = self._req("GET", f"/shipment_subscribers?telegram_id=eq.{telegram_id}&select=shipment_id,label,active&order=shipment_id.desc")
+        sub_rows = sub_res.json()
+        if not sub_rows:
+            return []
+
+        shipments = []
+        for r in sub_rows:
+            sid = r["shipment_id"]
+            shipment = self.get_shipment(sid)
+            if shipment:
+                shipment["label"] = r.get("label")
+                shipment["is_subscribed"] = r.get("active", 1)
+                shipments.append(shipment)
+        return shipments
+
     def get_all_active_shipments(self) -> List[Dict]:
         # Get shipments with active subscribers and not delivered
         s_res = self._req("GET", "/shipments?is_delivered=eq.0&select=*")
